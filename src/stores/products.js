@@ -26,6 +26,13 @@ export const useProductStore = defineStore('products', () => {
     }
   }
 
+  /** { name, price } — price is บาท/กก. */
+  async function create(payload) {
+    const product = await productService.create(payload)
+    items.value.push(product)
+    return product
+  }
+
   // Filtering happens client-side for snappy POS taps; swap to server params when the menu gets large.
   const visible = computed(() => {
     const { search, category, brand } = filters.value
@@ -34,9 +41,9 @@ export const useProductStore = defineStore('products', () => {
       (p) =>
         (!category || p.category === category) &&
         (!brand || p.brand === brand) &&
-        (!q || p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q)),
+        (!q || p.name.toLowerCase().includes(q)),
     )
   })
 
-  return { items, categories, brands, loading, error, filters, visible, load }
+  return { items, categories, brands, loading, error, filters, visible, load, create }
 })

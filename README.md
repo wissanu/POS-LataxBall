@@ -99,3 +99,21 @@ src/
 - Order List thumbnails and avatars use emoji/initials instead of the photos in Figma. Export the images from Figma and
   add an `image` field to your API items to show real photos.
 - “Dark Mode” in the dashboard sidebar is a visual toggle only.
+
+---
+
+## หน้า "จัดทำรายการ" (รับซื้อก้อนถ้วยยาง)
+
+| ส่วน | ทำอะไร | ไฟล์หลัก |
+|---|---|---|
+| 1 | หัวข้อ "จัดทำรายการ" · ปุ่มสีน้ำเงิน **New** เปิด popup กรอก *ชื่อ* + *ราคา (บาท/กก.)* → กด **ยืนยัน** แล้วได้การ์ดในส่วนที่ 3 | `views/NewOrderView.vue`, `components/AddProductModal.vue` |
+| 2 | ค้นหา/หมวดหมู่/แบรนด์ ถูกคอมเมนต์ซ่อนไว้ (ลบเครื่องหมายคอมเมนต์เพื่อเปิดกลับ) | `views/NewOrderView.vue` |
+| 3 | การ์ดสินค้า (ชื่อ · รูป default · ราคาบาท/กก.) คลิกแล้วเปิด popup เลือกภาชนะ | `components/ProductCard.vue`, `components/ContainerPickerModal.vue` |
+| 4 | เลือกลูกค้าประจำ (ตามหมายเลข) / ลูกค้าทั่วไป · รายการเพิ่มได้ไม่จำกัด เลือกซ้ำได้ · ใส่น้ำหนัก → คำนวณอัตโนมัติ · ส่วนลด | `components/OrderPanel.vue`, `stores/cart.js` |
+
+- **แก้รายการภาชนะ** (เพิ่ม/ลบปุ่ม, ใส่น้ำหนักภาชนะที่จะหักอัตโนมัติ): `src/config/containers.js`
+- **เปลี่ยนรูป default**: วางไฟล์ทับ `src/assets/latex-lump.svg` (หรือแก้ import ใน `components/LumpImage.vue`)
+- **สูตรคำนวณ**: น้ำหนักสุทธิ = น้ำหนักรวม − น้ำหนักภาชนะ · ยอดบรรทัด = สุทธิ × ราคา/กก. · ส่วนลด "ต่อ กก." = (บาท/กก. × น้ำหนักสุทธิรวม) · ส่วนลด "เป็นเงิน" = หักยอดคงที่ (ไม่เกินยอดรวม)
+- **ฟอนต์**: ภาษาไทยใช้ Mali (`--font` ใน `src/assets/main.css`), ตัวเลข/อังกฤษใช้ Plus Jakarta Sans ตามดีไซน์
+- **API ที่ต้องมี** (นอกเหนือจากของเดิม): `POST /products {name, price}`, `GET /members -> [{id,no,name}]`, และ `POST /orders` รูปแบบใหม่ (ดู `stores/cart.js` → `submit()`)
+- โหมด mock เก็บรายการสินค้าไว้ใน localStorage (ล้างได้ที่ DevTools → Application → `mock.products`)

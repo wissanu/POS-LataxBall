@@ -1,6 +1,7 @@
 <script setup>
 import AppIcon from './AppIcon.vue'
-import { formatMoney, formatDateTime, initials } from '@/utils/format'
+import LumpImage from './LumpImage.vue'
+import { formatMoney, formatDateTime, formatKg, initials } from '@/utils/format'
 
 const props = defineProps({ order: { type: Object, required: true }, busy: Boolean })
 defineEmits(['accept', 'reject'])
@@ -21,21 +22,21 @@ const avatarBg = tones[props.order.id % tones.length]
 
     <ul>
       <li v-for="(it, i) in order.items" :key="i">
-        <span class="thumb" aria-hidden="true">{{ it.emoji }}</span>
+        <span class="thumb" aria-hidden="true"><template v-if="it.emoji">{{ it.emoji }}</template><LumpImage v-else /></span>
         <div class="meta">
           <h4>{{ it.name }}</h4>
           <p>{{ it.description }}</p>
         </div>
         <div class="price">
           <strong>{{ formatMoney(it.price) }}</strong>
-          <span>Qty: {{ it.qty }}</span>
+          <span>{{ it.netWeight != null ? formatKg(it.netWeight) : `Qty: ${it.qty}` }}</span>
         </div>
       </li>
     </ul>
 
     <footer>
       <div>
-        <p>+{{ order.extraItems }} items</p>
+        <p v-if="order.extraItems">+{{ order.extraItems }} items</p>
         <strong>{{ formatMoney(order.total) }}</strong>
       </div>
 
@@ -59,6 +60,7 @@ time { font-size: 12px; color: var(--slate-400); }
 ul { list-style: none; margin: 0; padding: 12px 0 0; border-top: 1px solid var(--slate-100); display: flex; flex-direction: column; gap: 12px; }
 li { display: flex; align-items: center; gap: 10px; }
 .thumb { width: 44px; height: 44px; border-radius: var(--radius-md); background: linear-gradient(135deg, #fef3c7, #dcfce7); display: grid; place-items: center; font-size: 22px; flex: none; }
+.thumb :deep(.lump) { padding: 4px; }
 .meta { flex: 1; min-width: 0; }
 h4 { font-size: 14px; font-weight: 600; color: var(--slate-900); line-height: 18px; }
 .meta p { font-size: 12px; color: var(--slate-400); }

@@ -3,7 +3,7 @@
 // Delete this folder (and the import in http.js) once your real API is ready.
 import { AxiosError } from 'axios'
 import { decodeJwt, isTokenExpired } from '@/utils/jwt'
-import { users, products, categories, orders, queueOf } from './db'
+import { users, products, categories, members, orders, queueOf, saveProducts } from './db'
 
 const ACCESS_TTL = 60 // seconds — short on purpose so you can watch the refresh happen
 const REFRESH_TTL = 60 * 60 * 24 * 7
@@ -61,24 +61,41 @@ const routes = [
   ['GET', /^\/auth\/me$/, ({ config }) => publicUser(requireAuth(config))],
 
   ['GET', /^\/categories$/, ({ config }) => { requireAuth(config); return categories }],
+  ['GET', /^\/members$/, ({ config }) => { requireAuth(config); return members }],
   ['GET', /^\/products$/, ({ config, query }) => {
     requireAuth(config)
     const q = String(query.search || '').toLowerCase()
-    return products.filter((p) =>
-      (!query.category || p.category === query.category) &&
-      (!query.brand || p.brand === query.brand) &&
-      (!q || p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q)))
+    return products.filter((p) => !q || p.name.toLowerCase().includes(q))
+  }],
+  ['POST', /^\/products$/, ({ config, body }) => {
+    requireAuth(config)
+    const name = String(body.name || '').trim()
+    const price = Number(body.price)
+    if (!name) throw new HttpError(422, 'กรุณากรอกชื่อรายการ')
+    if (!(price > 0)) throw new HttpError(422, 'ราคาต้องมากกว่า 0')
+    const product = { id: Math.max(0, ...products.map((p) => p.id)) + 1, name, price: Math.round(price * 100) / 100 }
+    products.push(product)
+    saveProducts()
+    return product
   }],
 
   ['GET', /^\/orders$/, ({ config }) => { requireAuth(config); return { data: orders, queue: queueOf(orders) } }],
   ['POST', /^\/orders$/, ({ config, body }) => {
     const user = requireAuth(config)
-    const total = body.items.reduce((s, i) => s + i.price * i.qty, 0)
     const order = {
-      id: Math.max(...orders.map((o) => o.id)) + 1, createdAt: new Date().toISOString(),
-      customer: { name: body.customer || 'Walk-in' }, cashier: user.name, table: body.table, serviceType: body.serviceType,
-      items: body.items.map((i) => ({ ...i, description: i.note || '' })), extraItems: 0,
-      total: Number(total.toFixed(2)), status: body.status === 'draft' ? 'draft' : 'pending',
+      id: Math.max(...orders.map((o) => o.id)) + 1,
+      createdAt: new Date().toISOString(),
+      customer: { name: body.customer?.name || 'ลูกค้าทั่วไป', type: body.customer?.type, memberNo: body.customer?.memberNo },
+      cashier: user.name,
+      // each line = one weighing (same product/container can appear many times)
+      items: body.items.map((i) => ({
+        id: i.productId, name: i.name, description: `${i.containerLabel} · ${Number(i.pricePerKg).toFixed(2)} บาท/กก.`,
+        price: i.amount, qty: 1, netWeight: i.netWeight, grossWeight: i.gross, tare: i.tare, pricePerKg: i.pricePerKg,
+      })),
+      extraItems: 0,
+      subtotal: body.subtotal, discount: body.discount,
+      total: body.total,
+      status: body.status === 'draft' ? 'draft' : 'pending',
     }
     orders.unshift(order)
     return order

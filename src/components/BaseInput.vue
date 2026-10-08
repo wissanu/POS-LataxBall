@@ -2,7 +2,7 @@
 import { useId } from 'vue'
 import AppIcon from './AppIcon.vue'
 
-defineProps({
+const props = defineProps({
   modelValue: { type: [String, Number], default: '' },
   label: String,
   icon: String,
@@ -12,9 +12,20 @@ defineProps({
   inputmode: String,
   maxlength: [String, Number],
   error: String,
+  format: Function, // optional: (value) => cleaned value, applied while typing
   size: { type: String, default: 'lg' }, // lg (forms) | sm
 })
-defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue'])
+
+function onInput(e) {
+  let v = e.target.value
+  if (props.format) {
+    const cleaned = props.format(v)
+    if (cleaned !== v) e.target.value = cleaned // keep the DOM in sync even if the model doesn't change
+    v = cleaned
+  }
+  emit('update:modelValue', v)
+}
 const id = useId()
 </script>
 
@@ -29,7 +40,7 @@ const id = useId()
       <input
         :id="id" :value="modelValue" :type="type" :placeholder="placeholder" :autocomplete="autocomplete"
         :inputmode="inputmode" :maxlength="maxlength" :aria-invalid="!!error || undefined"
-        @input="$emit('update:modelValue', $event.target.value)"
+        @input="onInput"
       />
       <slot name="trailing" />
     </div>
