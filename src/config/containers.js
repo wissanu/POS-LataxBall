@@ -1,22 +1,11 @@
-// ภาชนะที่ใช้ใส่สินค้า (ปุ่มใน popup ตอนกดเลือกสินค้า)
+// ภาชนะที่ใช้ใส่สินค้า — ค่าเริ่มต้นอยู่ใน containers.json
 //
-//  id     : รหัสภายใน (ห้ามซ้ำ)
-//  label  : ข้อความบนปุ่มใน popup
-//  short  : ข้อความสั้นที่แสดงในรายการด้านขวา
-//  icon   : 'none' | 'keng' | 'basket'   (รูปแบบไอคอน)
-//  scale  : ขนาดไอคอนของตะกร้า (ใหญ่ → เล็ก)
-//  tare   : น้ำหนักภาชนะ (กก.) ที่หักออกจากน้ำหนักรวมอัตโนมัติ — ตั้งค่าตรงนี้ได้เลย
-//           (ตอนนี้เป็น 0 ทั้งหมด และแก้เป็นรายบรรทัดในรายการได้ด้วย)
+//  tare  = น้ำหนักภาชนะ (กก.) ที่ระบบหักออกจากน้ำหนักรวมอัตโนมัติ
+//  fixed = true  → ค่าถูกล็อก แก้ไม่ได้ (เช่น "ไม่ได้ใส่ภาชนะ" ต้องเป็น 0 เสมอ)
 //
-// อยากเพิ่ม/ลดปุ่ม: เพิ่มหรือลบบรรทัดในรายการนี้ได้เลย ปุ่มจะจัดเป็นตาราง 3 คอลัมน์ให้อัตโนมัติ
-export const CONTAINERS = [
-  { id: 'none', label: 'ไม่ได้ใส่ภาชนะ', short: 'ไม่มีภาชนะ', icon: 'none', tare: 0 },
-  { id: 'keng', label: 'ใส่ตะกร้าเข่ง', short: 'ตะกร้าเข่ง', icon: 'keng', tare: 0 },
-  { id: 'xxl', label: 'ตะกร้าขนาด XXL', short: 'ตะกร้า XXL', icon: 'basket', scale: 1, tare: 0 },
-  { id: 'xl', label: 'ตะกร้าขนาด XL', short: 'ตะกร้า XL', icon: 'basket', scale: 0.92, tare: 0 },
-  { id: 'l', label: 'ตะกร้าขนาด L', short: 'ตะกร้า L', icon: 'basket', scale: 0.84, tare: 0 },
-  { id: 'm', label: 'ตะกร้าขนาด M', short: 'ตะกร้า M', icon: 'basket', scale: 0.74, tare: 0 },
-  { id: 's', label: 'ตะกร้าขนาด S', short: 'ตะกร้า S', icon: 'basket', scale: 0.64, tare: 0 },
-]
+// การแก้ค่า tare: กดปุ่มฟันเฟืองที่หน้า "จัดทำรายการ" → ระบบเรียก PUT /settings/containers
+// (แก้ได้อย่างเดียว: ไม่มีการเพิ่ม/ลบภาชนะผ่านหน้าจอ) ส่วนจะเพิ่ม/ลบชนิดภาชนะ ให้แก้ที่ containers.json
+import doc from './containers.json'
 
-export const getContainer = (id) => CONTAINERS.find((c) => c.id === id)
+export const DEFAULT_CONTAINER_DOC = doc
+export const DEFAULT_CONTAINERS = doc.containers

@@ -7,23 +7,30 @@ import OrderPanel from '@/components/OrderPanel.vue'
 import BaseButton from '@/components/BaseButton.vue'
 import AddProductModal from '@/components/AddProductModal.vue'
 import ContainerPickerModal from '@/components/ContainerPickerModal.vue'
+import ContainerSettingsModal from '@/components/ContainerSettingsModal.vue'
 import LumpImage from '@/components/LumpImage.vue'
 import { useProductStore } from '@/stores/products'
 import { useCartStore } from '@/stores/cart'
 import { useOrderStore } from '@/stores/orders'
+import { useSettingsStore } from '@/stores/settings'
 import { useToast } from '@/composables/useToast'
 
 const products = useProductStore()
 const cart = useCartStore()
 const orders = useOrderStore()
+const settings = useSettingsStore()
 const toast = useToast()
 const router = useRouter()
 
 const addOpen = ref(false) // popup: เพิ่มรายการสินค้า (ปุ่มสีน้ำเงิน)
 const pickOpen = ref(false) // popup: เลือกภาชนะ (คลิกการ์ดสินค้า)
+const settingsOpen = ref(false) // popup: ตั้งค่าน้ำหนักภาชนะ (ปุ่มฟันเฟือง)
 const selected = ref(null)
 
-onMounted(() => { if (!products.items.length) products.load() })
+onMounted(() => {
+  if (!products.items.length) products.load()
+  settings.load() // น้ำหนักภาชนะที่ตั้งไว้ (JSON)
+})
 
 function openPicker(product) {
   selected.value = product
@@ -44,17 +51,21 @@ function openDrafts() {
   <section class="center glass">
     <!-- ส่วนที่ 1 -->
     <header class="title">
-      <div class="title__row">
-        <h1>จัดทำรายการ</h1>
-        <span class="live">Live</span>
+      <div class="title__main">
+        <div class="title__row">
+          <h1>จัดทำรายการ</h1>
+          <span class="live">Live</span>
+        </div>
+        <p class="crumbs">Dashboard <i>•</i> <b>New Order</b></p>
+        <div class="quick">
+          <BaseButton size="sm" @click="addOpen = true"><AppIcon name="plus" :size="14" /> New</BaseButton>
+          <BaseButton variant="outline" size="sm" @click="toast.info('ยังไม่เปิดใช้งานฟีเจอร์นี้')"><AppIcon name="qr" :size="14" /> QR Menu Orders</BaseButton>
+          <BaseButton variant="outline" size="sm" @click="openDrafts"><AppIcon name="file" :size="14" /> Draft List</BaseButton>
+          <BaseButton variant="outline" size="sm" @click="toast.info('ยังไม่เปิดใช้งานฟีเจอร์นี้')"><AppIcon name="table" :size="14" /> Table Order</BaseButton>
+        </div>
       </div>
-      <p class="crumbs">Dashboard <i>•</i> <b>New Order</b></p>
-      <div class="quick">
-        <BaseButton size="sm" @click="addOpen = true"><AppIcon name="plus" :size="14" /> New</BaseButton>
-        <BaseButton variant="outline" size="sm" @click="toast.info('ยังไม่เปิดใช้งานฟีเจอร์นี้')"><AppIcon name="qr" :size="14" /> QR Menu Orders</BaseButton>
-        <BaseButton variant="outline" size="sm" @click="openDrafts"><AppIcon name="file" :size="14" /> Draft List</BaseButton>
-        <BaseButton variant="outline" size="sm" @click="toast.info('ยังไม่เปิดใช้งานฟีเจอร์นี้')"><AppIcon name="table" :size="14" /> Table Order</BaseButton>
-      </div>
+      <!-- ปุ่มฟันเฟือง: ตั้งค่าน้ำหนักภาชนะ (ตัวเลขที่ใช้หักในส่วนที่ 4) -->
+      <button type="button" class="gear" title="ตั้งค่าน้ำหนักภาชนะ" aria-label="ตั้งค่าน้ำหนักภาชนะ" @click="settingsOpen = true"><AppIcon name="gear" :size="20" /></button>
     </header>
 
     <!--
@@ -110,12 +121,17 @@ function openDrafts() {
   <OrderPanel />
 
   <AddProductModal v-model="addOpen" />
+  <ContainerSettingsModal v-model="settingsOpen" />
   <ContainerPickerModal v-model="pickOpen" :product="selected" @pick="onPick" />
 </template>
 
 <style scoped>
 .center { flex: 1; min-width: 0; padding: 21px; display: flex; flex-direction: column; }
-.title { padding-bottom: 17px; border-bottom: 1px solid rgba(226, 232, 240, .6); display: flex; flex-direction: column; gap: 12px; }
+.title { padding-bottom: 17px; border-bottom: 1px solid rgba(226, 232, 240, .6); display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
+.title__main { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.gear { flex: none; width: 42px; height: 42px; border-radius: 14px; display: grid; place-items: center; color: var(--slate-600); background: var(--glass-strong); border: 1px solid rgba(226, 232, 240, .9); box-shadow: 0 1px 2px rgba(0, 0, 0, .05); transition: color .15s, border-color .15s, transform .3s; }
+.gear:hover { color: var(--blue-600); border-color: #93c5fd; transform: rotate(45deg); }
+@media (prefers-reduced-motion: reduce) { .gear:hover { transform: none; } }
 .title__row { display: flex; align-items: center; gap: 8px; }
 h1 { font-size: 20px; font-weight: 700; letter-spacing: -.2px; color: var(--slate-900); line-height: 1.5; }
 .live { background: var(--green-100); color: var(--green-700); font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 9999px; }

@@ -44,7 +44,7 @@ watch(() => props.modelValue, async (open) => {
   document.addEventListener('keydown', onKeydown)
   document.documentElement.style.overflow = 'hidden' // no page scroll behind the popup
   await nextTick()
-  ;(focusables()[0] ?? panel.value)?.focus()
+  ;(panel.value?.querySelector('[data-autofocus]') ?? focusables()[0] ?? panel.value)?.focus()
 })
 
 // give focus back to what opened the popup — unless something else (e.g. the weight field) already took it

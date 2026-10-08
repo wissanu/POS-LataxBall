@@ -2,6 +2,8 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import AppIcon from './AppIcon.vue'
 import BaseButton from './BaseButton.vue'
+import MemberCombobox from './MemberCombobox.vue'
+import DiscountModal from './DiscountModal.vue'
 import { useCartStore } from '@/stores/cart'
 import { useMemberStore } from '@/stores/members'
 import { useToast } from '@/composables/useToast'
@@ -15,35 +17,34 @@ const toast = useToast()
 const collapsed = ref(false)
 const search = ref('')
 const busy = ref(false)
+const discountOpen = ref(false)
+const editingDiscount = ref(null)
 
 onMounted(() => members.load())
 
 const badge = computed(() => (cart.customerType === 'member' ? cart.member?.no ?? '—' : null))
 const subtitle = computed(() => {
   if (cart.customerType === 'general') return 'ลูกค้าทั่วไป (ไม่มีสมาชิก)'
-  return cart.member ? `ลูกค้าประจำ · ${cart.member.no} ${cart.member.name}` : 'ยังไม่ได้เลือกหมายเลขลูกค้าประจำ'
+  return cart.member ? `ลูกค้าประจำ · ${cart.member.no} ${cart.member.name}` : 'ยังไม่ได้เลือกลูกค้าประจำ'
 })
 const shown = computed(() => {
   const q = search.value.trim().toLowerCase()
   return q ? cart.lines.filter((l) => l.name.toLowerCase().includes(q) || l.containerLabel.toLowerCase().includes(q)) : cart.lines
 })
+const lineNo = (uid) => cart.lines.findIndex((l) => l.uid === uid) + 1
 
-// number inputs: only digits + one dot, max 2 decimals; write the cleaned text back to the field
-function onNum(e, uid, field) {
+// weight input: only digits + one dot, max 2 decimals; write the cleaned text back to the field
+function onGross(e, uid) {
   const v = sanitizeDecimal(e.target.value)
   if (v !== e.target.value) e.target.value = v
-  cart.setLine(uid, field, v)
+  cart.setGross(uid, v)
 }
-function onDiscount(e) {
-  const v = sanitizeDecimal(e.target.value)
-  if (v !== e.target.value) e.target.value = v
-  cart.discountValue = v
-}
-function setMode(mode) {
-  if (cart.discountMode === mode) return
-  cart.discountMode = mode
-  cart.discountValue = '' // the unit changed, so the old number would be misleading
-}
+
+// discounts
+function addDiscount() { editingDiscount.value = null; discountOpen.value = true }
+function editDiscount(id) { editingDiscount.value = id; discountOpen.value = true }
+const scopeLabel = (r) => (r.scope === 'all' ? 'ทุกตะกร้า' : `#${lineNo(r.scope)} ${r.line?.containerLabel ?? ''}`)
+const modeLabel = (r) => (r.mode === 'perKg' ? `ลด ${formatNumber(toNumber(r.value))} บาท/กก.` : 'ลดเป็นเงิน')
 
 // after choosing a container in the popup, jump straight to the weight field of the new line
 watch(() => cart.lastAddedUid, async (uid) => {
@@ -59,7 +60,7 @@ watch(() => cart.lastAddedUid, async (uid) => {
 async function send(status, message) {
   if (!cart.lines.length || busy.value) return
   if (status !== 'draft') {
-    if (cart.customerType === 'member' && !cart.member) return toast.error('กรุณาเลือกหมายเลขลูกค้าประจำ')
+    if (cart.customerType === 'member' && !cart.member) return toast.error('กรุณาเลือกลูกค้าประจำ')
     if (cart.lines.some((l) => cart.netOf(l) <= 0)) return toast.error('กรุณาใส่น้ำหนักให้ครบทุกรายการ')
   }
   busy.value = true
@@ -93,20 +94,13 @@ async function send(status, message) {
     </header>
 
     <template v-if="!collapsed">
-      <!-- ลูกค้า: ประจำ (เลือกหมายเลข) หรือ ทั่วไป -->
+      <!-- ลูกค้า: ประจำ (ค้นหาด้วยชื่อ/รหัส) หรือ ทั่วไป -->
       <section class="customer" aria-label="ลูกค้า">
         <div class="seg" role="radiogroup" aria-label="ประเภทลูกค้า">
           <button type="button" role="radio" :aria-checked="cart.customerType === 'member'" :class="{ on: cart.customerType === 'member' }" @click="cart.customerType = 'member'">ลูกค้าประจำ</button>
           <button type="button" role="radio" :aria-checked="cart.customerType === 'general'" :class="{ on: cart.customerType === 'general' }" @click="cart.customerType = 'general'">ลูกค้าทั่วไป</button>
         </div>
-        <label v-if="cart.customerType === 'member'" class="select">
-          <span class="sr-only">หมายเลขลูกค้าประจำ</span>
-          <select v-model="cart.memberId">
-            <option :value="null" disabled>เลือกหมายเลขลูกค้าประจำ</option>
-            <option v-for="m in members.items" :key="m.id" :value="m.id">{{ m.no }} · {{ m.name }}</option>
-          </select>
-          <AppIcon name="chevron-down" :size="14" />
-        </label>
+        <MemberCombobox v-if="cart.customerType === 'member'" v-model="cart.memberId" :members="members.items" />
         <p v-if="members.error && cart.customerType === 'member'" class="err">{{ members.error }} <button type="button" @click="members.load(true)">ลองใหม่</button></p>
       </section>
 
@@ -127,8 +121,11 @@ async function send(status, message) {
         <li v-for="line in shown" :key="line.uid" class="item">
           <div class="item__top">
             <div>
-              <h4>{{ line.name }}</h4>
-              <p class="meta"><span class="chip">{{ line.containerLabel }}</span> {{ formatNumber(line.pricePerKg) }} บาท/กก.</p>
+              <h4><span class="no">#{{ lineNo(line.uid) }}</span> {{ line.name }}</h4>
+              <p class="meta">
+                <span class="chip">{{ line.containerLabel }}</span> {{ formatNumber(line.pricePerKg) }} บาท/กก.
+                <span v-if="cart.lineDiscountOf(line.uid) > 0" class="chip chip--red">ลด −{{ formatMoney(cart.lineDiscountOf(line.uid)) }}</span>
+              </p>
             </div>
             <button type="button" class="icon-btn" :aria-label="`ลบ ${line.name}`" @click="cart.removeLine(line.uid)"><AppIcon name="trash" :size="14" /></button>
           </div>
@@ -137,17 +134,15 @@ async function send(status, message) {
             <label class="wfield">
               <span>น้ำหนักรวม</span>
               <span class="wbox">
-                <input :id="`gross-${line.uid}`" :value="line.gross" inputmode="decimal" placeholder="0.00" maxlength="9" autocomplete="off" @input="onNum($event, line.uid, 'gross')" />
+                <input :id="`gross-${line.uid}`" :value="line.gross" inputmode="decimal" placeholder="0.00" maxlength="9" autocomplete="off" @input="onGross($event, line.uid)" />
                 <em>กก.</em>
               </span>
             </label>
-            <label class="wfield">
+            <!-- read-only: ค่านี้ตั้งจากปุ่มฟันเฟือง ไม่ใช่ช่องกรอก -->
+            <div class="wfield">
               <span>หักภาชนะ</span>
-              <span class="wbox">
-                <input :value="line.tare" inputmode="decimal" placeholder="0.00" maxlength="9" autocomplete="off" @input="onNum($event, line.uid, 'tare')" />
-                <em>กก.</em>
-              </span>
-            </label>
+              <span class="ro" :class="{ 'ro--zero': !cart.tareOf(line) }" title="ตั้งค่าได้ที่ปุ่มฟันเฟือง">{{ formatNumber(cart.tareOf(line)) }} <em>กก.</em></span>
+            </div>
           </div>
 
           <div class="item__foot">
@@ -157,25 +152,23 @@ async function send(status, message) {
         </li>
       </ul>
 
-      <!-- ส่วนลด -->
-      <section class="discount" aria-label="ส่วนลด">
-        <div class="discount__row">
-          <span class="discount__title">ส่วนลด</span>
-          <div class="seg seg--sm" role="radiogroup" aria-label="รูปแบบส่วนลด">
-            <button type="button" role="radio" :aria-checked="cart.discountMode === 'perKg'" :class="{ on: cart.discountMode === 'perKg' }" @click="setMode('perKg')">ลดต่อ กก.</button>
-            <button type="button" role="radio" :aria-checked="cart.discountMode === 'amount'" :class="{ on: cart.discountMode === 'amount' }" @click="setMode('amount')">ลดเป็นเงิน</button>
-          </div>
+      <!-- ส่วนลด: หลายรายการต่อลูกค้า 1 คน -->
+      <section class="disc" aria-label="ส่วนลด">
+        <div class="disc__head">
+          <h3><AppIcon name="tag" :size="14" /> ส่วนลด <span v-if="cart.discounts.length">{{ cart.discounts.length }}</span></h3>
+          <button type="button" class="disc__add" :disabled="!cart.lines.length" @click="addDiscount"><AppIcon name="plus" :size="13" /> เพิ่มส่วนลด</button>
         </div>
-        <label class="wbox wbox--wide">
-          <span class="sr-only">{{ cart.discountMode === 'perKg' ? 'ลดราคาต่อกิโลกรัม (บาท)' : 'จำนวนเงินที่ลด (บาท)' }}</span>
-          <input :value="cart.discountValue" inputmode="decimal" placeholder="0.00" maxlength="9" autocomplete="off" @input="onDiscount" />
-          <em>{{ cart.discountMode === 'perKg' ? 'บาท/กก.' : 'บาท' }}</em>
-        </label>
-        <p v-if="toNumber(cart.discountValue) > 0" class="hint" :class="{ 'hint--warn': cart.discountClamped }">
-          <template v-if="cart.discountClamped">ส่วนลดเกินยอดรวม ระบบหักสูงสุดเท่ายอดรวม ({{ formatMoney(cart.discountAmount) }})</template>
-          <template v-else-if="cart.discountMode === 'perKg'">ลด {{ formatNumber(toNumber(cart.discountValue)) }} บาท × {{ formatKg(cart.totalNet) }} = {{ formatMoney(cart.discountAmount) }}</template>
-          <template v-else>หักออกจากยอดรวม {{ formatMoney(cart.discountAmount) }}</template>
-        </p>
+        <ul v-if="cart.discountRows.length" class="disc__list scroll-y">
+          <li v-for="r in cart.discountRows" :key="r.id" class="drow">
+            <button type="button" class="drow__main" :aria-label="`แก้ไขส่วนลด ${scopeLabel(r)} ${modeLabel(r)}`" @click="editDiscount(r.id)">
+              <span class="drow__scope" :class="{ 'drow__scope--all': r.scope === 'all' }">{{ scopeLabel(r) }}</span>
+              <span class="drow__text">{{ modeLabel(r) }}</span>
+              <span class="drow__amt">−{{ formatMoney(r.raw) }}</span>
+            </button>
+            <button type="button" class="drow__del" :aria-label="`ลบส่วนลด ${scopeLabel(r)}`" @click="cart.removeDiscount(r.id)"><AppIcon name="x" :size="13" /></button>
+          </li>
+        </ul>
+        <p v-if="cart.discountClamped" class="warn">ส่วนลดรวมเกินยอด ระบบหักสูงสุดเท่ายอดที่มี</p>
       </section>
 
       <dl class="summary">
@@ -192,6 +185,8 @@ async function send(status, message) {
         <BaseButton variant="success" :disabled="!cart.lines.length" @click="send('pending', 'พิมพ์บิลแล้ว')"><AppIcon name="printer" /> Bill &amp; Print</BaseButton>
       </div>
     </template>
+
+    <DiscountModal v-model="discountOpen" :edit-id="editingDiscount" />
   </aside>
 </template>
 
@@ -208,24 +203,18 @@ h2 { font-size: 13px; font-weight: 700; color: var(--slate-900); display: flex; 
 .who p { font-size: 11px; line-height: 1.5; color: var(--slate-500); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
 .toggle { flex: none; width: 28px; height: 28px; border-radius: var(--radius-sm); background: var(--slate-100); display: grid; place-items: center; color: var(--slate-600); }
 
-/* customer */
-.customer { display: flex; flex-direction: column; gap: 8px; padding: 12px 0 8px; }
+/* customer — z-index so the search dropdown floats above the list below */
+.customer { position: relative; z-index: 5; display: flex; flex-direction: column; gap: 8px; padding: 12px 0 8px; }
 .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: var(--slate-100); border-radius: var(--radius-md); }
 .seg button { padding: 7px 8px; border-radius: 9px; font-size: 12px; font-weight: 600; line-height: 1.4; color: var(--slate-500); transition: background .15s, color .15s; }
 .seg button.on { background: #fff; color: var(--blue-700); box-shadow: 0 1px 3px rgba(15, 23, 42, .12); }
-.seg--sm { padding: 3px; }
-.seg--sm button { padding: 4px 10px; font-size: 11px; white-space: nowrap; }
-.select { position: relative; display: flex; align-items: center; height: 36px; background: #fff; border: 1px solid var(--slate-200); border-radius: var(--radius-md); color: var(--slate-400); }
-.select select { appearance: none; width: 100%; height: 100%; border: 0; background: none; outline: none; padding: 0 30px 0 12px; font-size: 12px; font-weight: 500; color: var(--slate-800); cursor: pointer; }
-.select:focus-within { border-color: var(--blue-600); box-shadow: 0 0 0 3px rgba(37, 99, 235, .15); }
-.select svg { position: absolute; right: 10px; pointer-events: none; }
 .err { font-size: 11px; color: #dc2626; }
 .err button { color: var(--blue-600); font-weight: 600; margin-left: 6px; }
 
-/* list */
+/* lines */
 .list-head { display: flex; align-items: center; gap: 8px; padding: 6px 0 8px; }
 .list-head h3 { font-size: 12px; font-weight: 700; color: var(--slate-700); line-height: 1.5; margin-right: auto; }
-.list-head h3 span { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: var(--blue-100); color: var(--blue-700); font-size: 11px; text-align: center; }
+.list-head h3 span, .disc__head h3 span { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: var(--blue-100); color: var(--blue-700); font-size: 11px; text-align: center; }
 .mini-search { display: flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; background: #fff; border: 1px solid var(--slate-200); border-radius: 8px; color: var(--slate-400); width: 92px; }
 .mini-search input { width: 100%; min-width: 0; border: 0; outline: none; background: none; font-size: 11px; color: var(--slate-800); }
 .clear { font-size: 11px; font-weight: 600; color: var(--slate-500); }
@@ -236,8 +225,10 @@ h2 { font-size: 13px; font-weight: 700; color: var(--slate-900); display: flex; 
 .item { background: rgba(248, 250, 252, .8); border: 1px solid var(--slate-100); border-radius: var(--radius-md); padding: 11px; display: flex; flex-direction: column; gap: 9px; }
 .item__top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
 .item h4 { font-size: 13px; font-weight: 700; line-height: 1.5; color: var(--slate-800); overflow-wrap: anywhere; }
+.item h4 .no { color: var(--blue-600); margin-right: 2px; }
 .meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 11px; line-height: 1.5; color: var(--slate-500); }
 .chip { background: var(--blue-50); color: var(--blue-700); font-weight: 600; padding: 1px 8px; border-radius: 6px; }
+.chip--red { background: var(--red-50); color: #dc2626; }
 .icon-btn { padding: 4px; color: var(--slate-400); border-radius: 6px; flex: none; }
 .icon-btn:hover { color: #dc2626; background: var(--red-50); }
 
@@ -249,18 +240,34 @@ h2 { font-size: 13px; font-weight: 700; color: var(--slate-900); display: flex; 
 .wbox input:focus { border-color: var(--blue-600); box-shadow: 0 0 0 3px rgba(37, 99, 235, .15); }
 .wbox input::placeholder { color: var(--slate-300); font-weight: 500; }
 .wbox em { position: absolute; right: 9px; font-style: normal; font-size: 11px; color: var(--slate-400); pointer-events: none; }
-.wbox--wide em { right: 11px; }
+/* read-only tare: looks like text, not a field */
+.ro { height: 34px; display: flex; align-items: center; justify-content: flex-end; gap: 4px; padding: 0 10px; font-size: 13px; font-weight: 700; color: var(--slate-700); background: transparent; border: 1px dashed var(--slate-200); border-radius: 10px; cursor: default; user-select: none; }
+.ro em { font-style: normal; font-size: 11px; font-weight: 400; color: var(--slate-400); }
+.ro--zero { color: var(--slate-400); font-weight: 500; }
 .item__foot { display: flex; justify-content: space-between; align-items: baseline; padding-top: 8px; border-top: 1px dashed var(--slate-200); font-size: 12px; color: var(--slate-500); }
 .item__foot b { color: var(--slate-800); }
 .item__foot strong { font-size: 15px; color: var(--blue-600); }
 
-/* discount + summary */
-.discount { display: flex; flex-direction: column; gap: 6px; padding: 10px 0 6px; border-top: 1px solid rgba(226, 232, 240, .8); }
-.discount__row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.discount__title { font-size: 12px; font-weight: 700; color: var(--slate-700); }
-.hint { font-size: 11px; line-height: 1.5; color: var(--slate-500); }
-.hint--warn { color: var(--amber-700); }
-.summary { margin: 0; padding-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+/* discounts */
+.disc { padding: 10px 0 4px; border-top: 1px solid rgba(226, 232, 240, .8); }
+.disc__head { display: flex; align-items: center; justify-content: space-between; }
+.disc__head h3 { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; line-height: 1.5; color: var(--slate-700); }
+.disc__add { display: inline-flex; align-items: center; gap: 4px; padding: 5px 11px; border-radius: 9px; font-size: 11px; font-weight: 700; color: var(--blue-700); background: var(--blue-50); border: 1px solid var(--blue-100); transition: background .15s; }
+.disc__add:hover:not(:disabled) { background: var(--blue-100); }
+.disc__add:disabled { opacity: .5; cursor: not-allowed; }
+.disc__list { list-style: none; margin: 8px 0 0; padding: 0 2px 0 0; max-height: 108px; display: flex; flex-direction: column; gap: 5px; }
+.drow { display: flex; align-items: stretch; background: #fff; border: 1px solid var(--slate-100); border-radius: 10px; overflow: hidden; }
+.drow:hover { border-color: #bfdbfe; }
+.drow__main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 7px 4px 7px 10px; text-align: left; font-size: 12px; line-height: 1.5; }
+.drow__scope { flex: none; padding: 0 8px; border-radius: 6px; font-size: 11px; font-weight: 700; background: var(--blue-100); color: var(--blue-700); white-space: nowrap; }
+.drow__scope--all { background: var(--slate-100); color: var(--slate-600); }
+.drow__text { flex: 1; min-width: 0; color: var(--slate-600); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.drow__amt { flex: none; font-weight: 700; color: #dc2626; }
+.drow__del { flex: none; width: 28px; display: grid; place-items: center; color: var(--slate-400); }
+.drow__del:hover { background: var(--red-50); color: #dc2626; }
+.warn { margin-top: 6px; font-size: 11px; line-height: 1.5; color: var(--amber-700); }
+
+.summary { margin: 0; padding-top: 8px; display: flex; flex-direction: column; gap: 4px; }
 .summary div { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; line-height: 1.6; }
 .summary dt { color: var(--slate-500); }
 .summary dd { margin: 0; font-weight: 600; color: var(--slate-800); }

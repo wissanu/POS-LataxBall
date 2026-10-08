@@ -29,3 +29,10 @@ export const sanitizeDecimal = (v, max = 2) => {
   if (i !== -1) s = s.slice(0, i + 1) + s.slice(i + 1).replace(/\./g, '').slice(0, max)
   return s
 }
+
+/**
+ * For searching Thai/English text: NFC-normalise, lowercase, and ignore Thai tone marks
+ * (่ ้ ๊ ๋ ์) so "สมชาย" still matches when the cashier skips a mark.
+ */
+export const normalizeSearch = (s) =>
+  String(s ?? '').normalize('NFC').toLowerCase().replace(/[\u0E48-\u0E4C]/g, '').trim()

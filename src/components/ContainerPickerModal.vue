@@ -2,11 +2,12 @@
 import BaseModal from './BaseModal.vue'
 import ContainerIcon from './ContainerIcon.vue'
 import LumpImage from './LumpImage.vue'
-import { CONTAINERS } from '@/config/containers'
+import { useSettingsStore } from '@/stores/settings'
 import { formatNumber } from '@/utils/format'
 
 defineProps({ modelValue: Boolean, product: Object })
 const emit = defineEmits(['update:modelValue', 'pick'])
+const settings = useSettingsStore()
 
 function choose(container) {
   emit('pick', container)
@@ -22,7 +23,7 @@ function choose(container) {
         <b>{{ formatNumber(product?.price) }}</b> บาท / กก. · เลือกภาชนะที่ใส่สินค้า
       </p>
       <div class="grid" role="group" aria-label="เลือกภาชนะ">
-        <button v-for="c in CONTAINERS" :key="c.id" type="button" class="opt" @click="choose(c)">
+        <button v-for="c in settings.containers" :key="c.id" type="button" class="opt" @click="choose(c)">
           <span class="opt__icon"><ContainerIcon :container="c" /></span>
           <span class="opt__label">{{ c.label }}</span>
           <small v-if="c.tare">หักภาชนะ {{ formatNumber(c.tare) }} กก.</small>

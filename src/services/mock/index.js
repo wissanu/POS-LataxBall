@@ -3,7 +3,7 @@
 // Delete this folder (and the import in http.js) once your real API is ready.
 import { AxiosError } from 'axios'
 import { decodeJwt, isTokenExpired } from '@/utils/jwt'
-import { users, products, categories, members, orders, queueOf, saveProducts } from './db'
+import { users, products, categories, members, orders, queueOf, saveProducts, getContainerDoc, saveContainerDoc } from './db'
 
 const ACCESS_TTL = 60 // seconds — short on purpose so you can watch the refresh happen
 const REFRESH_TTL = 60 * 60 * 24 * 7
@@ -61,6 +61,25 @@ const routes = [
   ['GET', /^\/auth\/me$/, ({ config }) => publicUser(requireAuth(config))],
 
   ['GET', /^\/categories$/, ({ config }) => { requireAuth(config); return categories }],
+  ['GET', /^\/settings\/containers$/, ({ config }) => { requireAuth(config); return getContainerDoc() }],
+  ['PUT', /^\/settings\/containers$/, ({ config, body }) => {
+    requireAuth(config)
+    if (!Array.isArray(body.containers)) throw new HttpError(422, 'รูปแบบข้อมูลไม่ถูกต้อง')
+    const doc = getContainerDoc()
+    const next = doc.containers.map((c) => ({ ...c }))
+    for (const u of body.containers) {
+      const target = next.find((c) => c.id === u.id)
+      if (!target) throw new HttpError(422, `ไม่พบภาชนะรหัส “${u.id}” (เพิ่มหรือลบภาชนะไม่ได้)`)
+      const tare = Number(u.tare)
+      if (!Number.isFinite(tare) || tare < 0 || tare > 9999) throw new HttpError(422, 'น้ำหนักภาชนะต้องเป็นตัวเลข 0 – 9999')
+      if (target.fixed && tare !== target.tare) throw new HttpError(422, `“${target.label}” แก้ไขค่าไม่ได้`)
+      target.tare = Math.round(tare * 100) / 100
+    }
+    const saved = { ...doc, updatedAt: new Date().toISOString(), containers: next }
+    saveContainerDoc(saved)
+    return saved
+  }],
+
   ['GET', /^\/members$/, ({ config }) => { requireAuth(config); return members }],
   ['GET', /^\/products$/, ({ config, query }) => {
     requireAuth(config)
@@ -93,7 +112,7 @@ const routes = [
         price: i.amount, qty: 1, netWeight: i.netWeight, grossWeight: i.gross, tare: i.tare, pricePerKg: i.pricePerKg,
       })),
       extraItems: 0,
-      subtotal: body.subtotal, discount: body.discount,
+      subtotal: body.subtotal, discounts: body.discounts ?? [], discountTotal: body.discountTotal ?? 0,
       total: body.total,
       status: body.status === 'draft' ? 'draft' : 'pending',
     }

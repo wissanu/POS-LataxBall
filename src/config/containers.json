@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "containers": [
+    { "id": "none", "label": "ไม่ได้ใส่ภาชนะ",  "short": "ไม่มีภาชนะ",  "icon": "none",   "tare": 0, "fixed": true },
+    { "id": "keng", "label": "ใส่ตะกร้าเข่ง",    "short": "ตะกร้าเข่ง",  "icon": "keng",   "tare": 0 },
+    { "id": "xxl",  "label": "ตะกร้าขนาด XXL",  "short": "ตะกร้า XXL", "icon": "basket", "scale": 1,    "tare": 0 },
+    { "id": "xl",   "label": "ตะกร้าขนาด XL",   "short": "ตะกร้า XL",  "icon": "basket", "scale": 0.92, "tare": 0 },
+    { "id": "l",    "label": "ตะกร้าขนาด L",    "short": "ตะกร้า L",   "icon": "basket", "scale": 0.84, "tare": 0 },
+    { "id": "m",    "label": "ตะกร้าขนาด M",    "short": "ตะกร้า M",   "icon": "basket", "scale": 0.74, "tare": 0 },
+    { "id": "s",    "label": "ตะกร้าขนาด S",    "short": "ตะกร้า S",   "icon": "basket", "scale": 0.64, "tare": 0 }
+  ]
+}

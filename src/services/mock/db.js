@@ -1,3 +1,5 @@
+import defaultContainerDoc from '@/config/containers.json'
+
 const ago = (min) => new Date(Date.now() - min * 60000).toISOString()
 
 // Demo accounts — every PIN is 1234
@@ -52,3 +54,23 @@ const chipIds = [
 ]
 export const queueOf = (list) =>
   chipIds.map(([id, status]) => ({ id, status: list.find((o) => o.id === id)?.status || status }))
+
+// ตั้งค่าน้ำหนักภาชนะ — เก็บเป็นเอกสาร JSON ใน localStorage (โหมด mock) ; backend จริงเก็บเป็นไฟล์/ฐานข้อมูลก็ได้
+const CONTAINERS_KEY = 'mock.settings.containers'
+function loadContainerDoc() {
+  let saved = null
+  try { saved = JSON.parse(localStorage.getItem(CONTAINERS_KEY)) } catch { /* ignore */ }
+  const tareById = Object.fromEntries((saved?.containers ?? []).map((c) => [c.id, c.tare]))
+  // structure (label/icon/…) always comes from containers.json; only the numbers are user-edited
+  return {
+    ...defaultContainerDoc,
+    updatedAt: saved?.updatedAt ?? null,
+    containers: defaultContainerDoc.containers.map((c) => ({ ...c, tare: c.fixed ? c.tare : tareById[c.id] ?? c.tare })),
+  }
+}
+let containerDoc = loadContainerDoc()
+export const getContainerDoc = () => containerDoc
+export const saveContainerDoc = (doc) => {
+  containerDoc = doc
+  try { localStorage.setItem(CONTAINERS_KEY, JSON.stringify(doc)) } catch { /* ignore */ }
+}
