@@ -1,20 +1,13 @@
 <script setup>
-<<<<<<< HEAD
-import { onMounted } from 'vue'
-=======
 import { onMounted, ref } from 'vue'
->>>>>>> 423f2fd (test)
 import { useRouter } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
 import ProductCard from '@/components/ProductCard.vue'
 import OrderPanel from '@/components/OrderPanel.vue'
 import BaseButton from '@/components/BaseButton.vue'
-<<<<<<< HEAD
-=======
 import AddProductModal from '@/components/AddProductModal.vue'
 import ContainerPickerModal from '@/components/ContainerPickerModal.vue'
 import LumpImage from '@/components/LumpImage.vue'
->>>>>>> 423f2fd (test)
 import { useProductStore } from '@/stores/products'
 import { useCartStore } from '@/stores/cart'
 import { useOrderStore } from '@/stores/orders'
@@ -26,10 +19,6 @@ const orders = useOrderStore()
 const toast = useToast()
 const router = useRouter()
 
-<<<<<<< HEAD
-onMounted(() => { if (!products.items.length) products.load() })
-
-=======
 const addOpen = ref(false) // popup: เพิ่มรายการสินค้า (ปุ่มสีน้ำเงิน)
 const pickOpen = ref(false) // popup: เลือกภาชนะ (คลิกการ์ดสินค้า)
 const selected = ref(null)
@@ -45,7 +34,6 @@ function onPick(container) {
   cart.addLine(selected.value, container)
   toast.success(`เพิ่ม ${selected.value.name} (${container.short})`)
 }
->>>>>>> 423f2fd (test)
 function openDrafts() {
   orders.statusFilter = 'draft'
   router.push({ name: 'orders' })
@@ -54,29 +42,14 @@ function openDrafts() {
 
 <template>
   <section class="center glass">
-<<<<<<< HEAD
-    <header class="title">
-      <div class="title__row">
-        <h1>Point of Sale (POS)</h1>
-=======
     <!-- ส่วนที่ 1 -->
     <header class="title">
       <div class="title__row">
         <h1>จัดทำรายการ</h1>
->>>>>>> 423f2fd (test)
         <span class="live">Live</span>
       </div>
       <p class="crumbs">Dashboard <i>•</i> <b>New Order</b></p>
       <div class="quick">
-<<<<<<< HEAD
-        <BaseButton size="sm" @click="cart.reset()"><AppIcon name="plus" :size="14" /> New</BaseButton>
-        <BaseButton variant="outline" size="sm" @click="toast.info('No QR menu orders waiting.')"><AppIcon name="qr" :size="14" /> QR Menu Orders</BaseButton>
-        <BaseButton variant="outline" size="sm" @click="openDrafts"><AppIcon name="file" :size="14" /> Draft List</BaseButton>
-        <BaseButton variant="outline" size="sm" @click="cart.serviceType = 'Dine In'"><AppIcon name="table" :size="14" /> Table Order</BaseButton>
-      </div>
-    </header>
-
-=======
         <BaseButton size="sm" @click="addOpen = true"><AppIcon name="plus" :size="14" /> New</BaseButton>
         <BaseButton variant="outline" size="sm" @click="toast.info('ยังไม่เปิดใช้งานฟีเจอร์นี้')"><AppIcon name="qr" :size="14" /> QR Menu Orders</BaseButton>
         <BaseButton variant="outline" size="sm" @click="openDrafts"><AppIcon name="file" :size="14" /> Draft List</BaseButton>
@@ -88,7 +61,6 @@ function openDrafts() {
       ส่วนที่ 2 (ซ่อนไว้ก่อน): ช่องค้นหา / เลือกหมวดหมู่ / เลือกแบรนด์ / ปุ่มกรองหมวดหมู่
       อยากเปิดกลับมาใช้ ให้ลบเครื่องหมายคอมเมนต์ตรงหัวและท้ายของบล็อกนี้ออก
 
->>>>>>> 423f2fd (test)
     <div class="filters">
       <label class="search">
         <AppIcon name="search" />
@@ -116,15 +88,6 @@ function openDrafts() {
       <button type="button" :class="{ on: !products.filters.category }" @click="products.filters.category = ''">Show All</button>
       <button v-for="c in products.categories" :key="c" type="button" :class="{ on: products.filters.category === c }" @click="products.filters.category = c">{{ c }}</button>
     </div>
-<<<<<<< HEAD
-
-    <div class="grid scroll-y">
-      <p v-if="products.loading" class="state">Loading menu…</p>
-      <p v-else-if="products.error" class="state state--error">{{ products.error }} <button type="button" @click="products.load()">Retry</button></p>
-      <p v-else-if="!products.visible.length" class="state">No dishes match your filters.</p>
-      <template v-else>
-        <ProductCard v-for="p in products.visible" :key="p.id" :product="p" @add="cart.add" />
-=======
     -->
 
     <!-- ส่วนที่ 3 -->
@@ -139,38 +102,27 @@ function openDrafts() {
       </div>
       <template v-else>
         <ProductCard v-for="p in products.visible" :key="p.id" :product="p" @select="openPicker" />
->>>>>>> 423f2fd (test)
       </template>
     </div>
   </section>
 
-<<<<<<< HEAD
-  <OrderPanel />
-=======
   <!-- ส่วนที่ 4 -->
   <OrderPanel />
 
   <AddProductModal v-model="addOpen" />
   <ContainerPickerModal v-model="pickOpen" :product="selected" @pick="onPick" />
->>>>>>> 423f2fd (test)
 </template>
 
 <style scoped>
 .center { flex: 1; min-width: 0; padding: 21px; display: flex; flex-direction: column; }
 .title { padding-bottom: 17px; border-bottom: 1px solid rgba(226, 232, 240, .6); display: flex; flex-direction: column; gap: 12px; }
 .title__row { display: flex; align-items: center; gap: 8px; }
-<<<<<<< HEAD
-h1 { font-size: 18px; font-weight: 700; letter-spacing: -.45px; color: var(--slate-900); line-height: 28px; }
-=======
 h1 { font-size: 20px; font-weight: 700; letter-spacing: -.2px; color: var(--slate-900); line-height: 1.5; }
->>>>>>> 423f2fd (test)
 .live { background: var(--green-100); color: var(--green-700); font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 9999px; }
 .crumbs { font-size: 12px; color: var(--slate-400); margin-top: -10px; }
 .crumbs i { font-style: normal; margin: 0 4px; }
 .crumbs b { color: var(--blue-600); font-weight: 500; }
 .quick { display: flex; flex-wrap: wrap; gap: 8px; }
-<<<<<<< HEAD
-=======
 
 .grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(184px, 1fr)); gap: 14px; align-content: start; padding: 16px 4px 16px 0; }
 .state { grid-column: 1 / -1; text-align: center; color: var(--slate-500); font-size: 13px; padding: 48px 0; }
@@ -182,7 +134,6 @@ h1 { font-size: 20px; font-weight: 700; letter-spacing: -.2px; color: var(--slat
 .empty p { max-width: 340px; font-size: 13px; line-height: 1.6; color: var(--slate-500); margin-bottom: 6px; }
 
 /* ส่วนที่ 2 (ซ่อนอยู่) — style เก็บไว้เผื่อเปิดกลับมาใช้ */
->>>>>>> 423f2fd (test)
 .filters { display: flex; flex-wrap: wrap; gap: 12px; padding: 12px 0; }
 .search { flex: 1; min-width: 200px; display: flex; align-items: center; gap: 10px; height: 34px; padding: 0 12px; background: #fff; border: 1px solid var(--slate-200); border-radius: var(--radius-md); box-shadow: 0 1px 2px rgba(0, 0, 0, .05); color: var(--slate-400); }
 .search input { flex: 1; border: 0; outline: none; background: none; font-size: 12px; color: var(--slate-800); }
@@ -193,11 +144,4 @@ h1 { font-size: 20px; font-weight: 700; letter-spacing: -.2px; color: var(--slat
 .chips { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 12px; scrollbar-width: none; }
 .chips button { flex: none; padding: 7px 17px; border-radius: var(--radius-md); background: var(--glass-strong); border: 1px solid rgba(226, 232, 240, .8); font-size: 12px; font-weight: 500; color: var(--slate-600); }
 .chips button.on { background: var(--blue-600); border-color: var(--blue-600); color: #fff; font-weight: 600; box-shadow: 0 1px 1px rgba(59, 130, 246, .2); }
-<<<<<<< HEAD
-.grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(134px, 1fr)); gap: 14px; align-content: start; padding: 0 4px 16px 0; }
-.state { grid-column: 1 / -1; text-align: center; color: var(--slate-500); font-size: 13px; padding: 48px 0; }
-.state--error { color: #dc2626; }
-.state button { color: var(--blue-600); font-weight: 600; margin-left: 8px; }
-=======
->>>>>>> 423f2fd (test)
 </style>
