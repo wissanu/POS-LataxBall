@@ -3,7 +3,12 @@
 // Delete this folder (and the import in http.js) once your real API is ready.
 import { AxiosError } from 'axios'
 import { decodeJwt, isTokenExpired } from '@/utils/jwt'
-import { users, products, categories, members, orders, queueOf, saveProducts, getContainerDoc, saveContainerDoc } from './db'
+import { products, categories, members, orders, queueOf, saveProducts, getContainerDoc, saveContainerDoc } from './db'
+import {
+  PERMISSIONS, ROLES, users, saveUsers, rolePermissions, saveRolePermissions,
+  effectivePermissions, roleOf, roleLabel,
+} from './rbac'
+import { salesOverview } from './sales'
 
 const ACCESS_TTL = 60 // seconds — short on purpose so you can watch the refresh happen
 const REFRESH_TTL = 60 * 60 * 24 * 7
@@ -17,7 +22,11 @@ const issueTokens = (user) => ({
   accessToken: sign({ sub: user.id, role: user.role, type: 'access' }, ACCESS_TTL),
   refreshToken: sign({ sub: user.id, type: 'refresh' }, REFRESH_TTL),
 })
-const publicUser = ({ pin, ...rest }) => rest
+const publicUser = ({ password, overrides, ...rest }) => ({
+  ...rest,
+  title: roleLabel(rest.role),
+  permissions: effectivePermissions({ ...rest, overrides }),
+})
 
 class HttpError extends Error {
   constructor(status, message) { super(message); this.status = status }
@@ -28,25 +37,62 @@ function requireAuth(config) {
   if (!token || isTokenExpired(token)) throw new HttpError(401, 'Access token expired or missing')
   const payload = decodeJwt(token)
   const user = users.find((u) => u.id === payload.sub)
-  if (!user) throw new HttpError(401, 'Unknown user')
+  if (!user || !user.active) throw new HttpError(401, 'Unknown or disabled user')
   return user
+}
+
+/** same idea as the real API's permission guard: 403 when the signed-in user lacks the permission */
+function requirePerm(config, ...codes) {
+  const user = requireAuth(config)
+  const have = effectivePermissions(user)
+  if (!codes.some((c) => have.includes(c))) throw new HttpError(403, 'คุณไม่มีสิทธิ์ใช้งานส่วนนี้')
+  return user
+}
+
+const activeAdmins = () => users.filter((u) => u.role === 'ADMIN' && u.active)
+const LAST_ADMIN = 'ต้องมี ADMIN ที่ใช้งานอยู่อย่างน้อย 1 คน'
+const adminView = ({ password, ...u }) => ({ ...u, permissions: effectivePermissions(u) })
+
+function validateUserFields(body, { existing } = {}) {
+  const out = {}
+  if (!existing) {
+    const username = String(body.username || '').trim()
+    if (!/^[A-Za-z0-9._-]{3,30}$/.test(username)) throw new HttpError(422, 'ชื่อผู้ใช้ต้องเป็นตัวอักษรอังกฤษ/ตัวเลข 3–30 ตัว (ใช้ . _ - ได้)')
+    if (users.some((u) => u.username.toLowerCase() === username.toLowerCase())) throw new HttpError(409, 'ชื่อผู้ใช้นี้ถูกใช้แล้ว')
+    out.username = username
+  }
+  const name = String(body.name ?? existing?.name ?? '').trim()
+  if (!name) throw new HttpError(422, 'กรุณากรอกชื่อที่แสดง')
+  out.name = name
+
+  if (body.password !== undefined && body.password !== '') {
+    if (String(body.password).length < 6) throw new HttpError(422, 'รหัสผ่านต้องมีอย่างน้อย 6 ตัวอักษร')
+    out.password = String(body.password)
+  } else if (!existing) throw new HttpError(422, 'กรุณากรอกรหัสผ่าน')
+
+  const role = body.role ?? existing?.role
+  if (!roleOf(role)) throw new HttpError(422, 'บทบาทไม่ถูกต้อง')
+  out.role = role
+  if (roleOf(role).isStaff) out.customerId = null
+  else {
+    const customerId = Number(body.customerId ?? existing?.customerId)
+    if (!members.some((m) => m.id === customerId)) throw new HttpError(422, 'บัญชีลูกค้าต้องเลือกลูกค้าที่จะผูกด้วย')
+    if (users.some((u) => u.customerId === customerId && u.id !== existing?.id)) throw new HttpError(409, 'ลูกค้ารายนี้มีบัญชีอยู่แล้ว')
+    out.customerId = customerId
+  }
+  out.active = body.active === undefined ? existing?.active ?? true : !!body.active
+  return out
 }
 
 const routes = [
   ['POST', /^\/auth\/login$/, ({ body }) => {
-    const id = String(body.identifier || '').trim().toLowerCase()
-    const user = users.find((u) => u.cashierId.toLowerCase() === id || u.email.toLowerCase() === id)
-    if (!user || user.pin !== String(body.pin)) throw new HttpError(401, 'Invalid cashier ID or PIN')
-    return { ...issueTokens(user), user: publicUser(user) }
-  }],
-  ['POST', /^\/auth\/register$/, ({ body }) => {
-    if (users.some((u) => u.email.toLowerCase() === String(body.email).toLowerCase()))
-      throw new HttpError(409, 'An account with this email already exists')
-    const user = {
-      id: users.length + 1, cashierId: `CASHIER-${800 + users.length}`, name: body.fullName, email: body.email,
-      pin: String(body.pin), role: 'manager', title: 'Store Manager', store: body.storeName, terminal: body.terminalId,
-    }
-    users.push(user)
+    const id = String(body.username || '').trim().toLowerCase()
+    const user = users.find((u) => u.username.toLowerCase() === id)
+    if (!user || user.password !== String(body.password)) throw new HttpError(401, 'Invalid username or password')
+    if (!user.active) throw new HttpError(403, 'บัญชีนี้ถูกปิดการใช้งาน กรุณาติดต่อผู้ดูแลระบบ')
+    if (user.role === 'CUSTOMER') throw new HttpError(403, 'บัญชีลูกค้าใช้งานระบบหน้าร้านไม่ได้')
+    user.lastLoginAt = new Date().toISOString()
+    saveUsers()
     return { ...issueTokens(user), user: publicUser(user) }
   }],
   ['POST', /^\/auth\/refresh$/, ({ body }) => {
@@ -54,11 +100,83 @@ const routes = [
     if (!payload || payload.type !== 'refresh' || isTokenExpired(body.refreshToken))
       throw new HttpError(401, 'Refresh token is invalid or expired')
     const user = users.find((u) => u.id === payload.sub)
-    if (!user) throw new HttpError(401, 'Unknown user')
+    if (!user || !user.active) throw new HttpError(401, 'Unknown or disabled user')
     return issueTokens(user) // rotation: a new refresh token every time
   }],
   ['POST', /^\/auth\/logout$/, () => ({ ok: true })],
   ['GET', /^\/auth\/me$/, ({ config }) => publicUser(requireAuth(config))],
+
+  // ---- reports ----
+  ['GET', /^\/reports\/overview$/, ({ config, query }) => {
+    requirePerm(config, 'report.view')
+    const res = salesOverview(query)
+    if (res.error) throw new HttpError(422, res.error)
+    return res
+  }],
+
+  // ---- admin: users / roles / permissions ----
+  ['GET', /^\/admin\/permissions$/, ({ config }) => { requirePerm(config, 'user.manage', 'role.manage'); return PERMISSIONS }],
+  ['GET', /^\/admin\/roles$/, ({ config }) => {
+    requirePerm(config, 'user.manage', 'role.manage')
+    return ROLES.map((r) => ({ ...r, permissions: [...rolePermissions[r.code]] }))
+  }],
+  ['PUT', /^\/admin\/roles\/([A-Z]+)\/permissions$/, ({ config, body, match }) => {
+    requirePerm(config, 'role.manage')
+    const role = roleOf(match[1])
+    if (!role) throw new HttpError(404, 'ไม่พบบทบาท')
+    if (role.code === 'ADMIN') throw new HttpError(422, 'ADMIN มีทุกสิทธิ์เสมอ แก้ไขไม่ได้')
+    const codes = [...new Set(body.permissions)]
+    if (!Array.isArray(body.permissions) || codes.some((c) => !PERMISSIONS.some((p) => p.code === c))) throw new HttpError(422, 'รายการสิทธิ์ไม่ถูกต้อง')
+    rolePermissions[role.code] = PERMISSIONS.map((p) => p.code).filter((c) => codes.includes(c))
+    saveRolePermissions()
+    return { ...role, permissions: [...rolePermissions[role.code]] }
+  }],
+  ['GET', /^\/admin\/users$/, ({ config }) => { requirePerm(config, 'user.manage', 'user.read'); return users.map(adminView) }],
+  ['POST', /^\/admin\/users$/, ({ config, body }) => {
+    requirePerm(config, 'user.manage')
+    const fields = validateUserFields(body)
+    const user = { id: Math.max(0, ...users.map((x) => x.id)) + 1, overrides: {}, lastLoginAt: null, ...fields }
+    users.push(user)
+    saveUsers()
+    return adminView(user)
+  }],
+  ['PATCH', /^\/admin\/users\/(\d+)$/, ({ config, body, match }) => {
+    requirePerm(config, 'user.manage')
+    const user = users.find((x) => x.id === Number(match[1]))
+    if (!user) throw new HttpError(404, 'ไม่พบผู้ใช้')
+    const fields = validateUserFields(body, { existing: user })
+    const staysAdmin = fields.role === 'ADMIN' && fields.active
+    if (user.role === 'ADMIN' && user.active && !staysAdmin && activeAdmins().length <= 1) throw new HttpError(409, LAST_ADMIN)
+    Object.assign(user, fields)
+    saveUsers()
+    return adminView(user)
+  }],
+  ['DELETE', /^\/admin\/users\/(\d+)$/, ({ config, match }) => {
+    const me = requirePerm(config, 'user.manage')
+    const user = users.find((x) => x.id === Number(match[1]))
+    if (!user) throw new HttpError(404, 'ไม่พบผู้ใช้')
+    if (user.id === me.id) throw new HttpError(409, 'ลบบัญชีที่กำลังใช้งานอยู่ไม่ได้')
+    if (user.role === 'ADMIN' && user.active && activeAdmins().length <= 1) throw new HttpError(409, LAST_ADMIN)
+    users.splice(users.indexOf(user), 1)
+    saveUsers()
+    return { ok: true }
+  }],
+  ['PUT', /^\/admin\/users\/(\d+)\/permissions$/, ({ config, body, match }) => {
+    requirePerm(config, 'role.manage')
+    const user = users.find((x) => x.id === Number(match[1]))
+    if (!user) throw new HttpError(404, 'ไม่พบผู้ใช้')
+    if (user.role === 'ADMIN') throw new HttpError(422, 'ADMIN มีทุกสิทธิ์เสมอ ปรับรายบุคคลไม่ได้')
+    const base = new Set(rolePermissions[user.role])
+    const next = {}
+    for (const [code, effect] of Object.entries(body.overrides ?? {})) {
+      if (!PERMISSIONS.some((p) => p.code === code) || !['GRANT', 'DENY'].includes(effect)) throw new HttpError(422, 'รายการสิทธิ์ไม่ถูกต้อง')
+      // keep only real differences from the role defaults
+      if ((effect === 'GRANT') !== base.has(code)) next[code] = effect
+    }
+    user.overrides = next
+    saveUsers()
+    return adminView(user)
+  }],
 
   ['GET', /^\/categories$/, ({ config }) => { requireAuth(config); return categories }],
   ['GET', /^\/settings\/containers$/, ({ config }) => { requireAuth(config); return getContainerDoc() }],

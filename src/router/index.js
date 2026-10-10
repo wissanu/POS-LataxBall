@@ -1,22 +1,26 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { registerAuthGuard } from './guards'
 
-const placeholder = (title, roles) => ({
+// `permission` = permission code(s) the user must hold (any one of them) — see 03_rbac.sql
+const placeholder = (title, permission) => ({
   component: () => import('@/views/PlaceholderView.vue'),
-  meta: { requiresAuth: true, title, ...(roles ? { roles } : {}) },
+  meta: { requiresAuth: true, title, ...(permission ? { permission } : {}) },
 })
 
 // NOTE: the POS shell is listed first so "/" resolves to its redirect child.
 const routes = [
-  // ---- POS shell (top bar + 2-item sidebar) ----
+  // ---- POS shell (top bar + sidebar) ----
   {
     path: '/',
     component: () => import('@/layouts/PosLayout.vue'),
     meta: { requiresAuth: true },
     children: [
       { path: '', redirect: { name: 'new-order' } },
-      { path: 'new-order', name: 'new-order', component: () => import('@/views/NewOrderView.vue'), meta: { requiresAuth: true, title: 'New Order' } },
-      { path: 'orders', name: 'orders', component: () => import('@/views/OrderListView.vue'), meta: { requiresAuth: true, title: 'Orders' } },
+      { path: 'reports', name: 'reports', component: () => import('@/views/ReportsView.vue'), meta: { requiresAuth: true, title: 'รายงานภาพรวม', permission: 'report.view' } },
+      { path: 'new-order', name: 'new-order', component: () => import('@/views/NewOrderView.vue'), meta: { requiresAuth: true, title: 'New Order', permission: 'purchase.create' } },
+      { path: 'orders', name: 'orders', component: () => import('@/views/OrderListView.vue'), meta: { requiresAuth: true, title: 'Orders', permission: 'purchase.read' } },
+      { path: 'no-access', name: 'no-access', component: () => import('@/views/NoAccessView.vue'), meta: { requiresAuth: true, title: 'ไม่มีสิทธิ์ใช้งาน' } },
+      { path: 'system', name: 'system', component: () => import('@/views/SystemSettingsView.vue'), meta: { requiresAuth: true, title: 'จัดแต่งระบบ', permission: ['user.manage', 'role.manage'] } },
     ],
   },
 
@@ -28,12 +32,11 @@ const routes = [
     children: [
       { path: 'dashboard', name: 'dashboard', ...placeholder('Dashboard') },
       { path: 'tables', name: 'tables', ...placeholder('Table & Floor Plan') },
-      { path: 'reports', name: 'reports', ...placeholder('Sales Reports', ['manager']) },
-      { path: 'menu', name: 'menu', ...placeholder('Menu Management', ['manager']) },
+      { path: 'menu', name: 'menu', ...placeholder('Menu Management', 'settings.manage') },
       { path: 'inventory', name: 'inventory', ...placeholder('Inventory Reports') },
       { path: 'shifts', name: 'shifts', ...placeholder('Shift & Cash Log') },
       { path: 'customers', name: 'customers', ...placeholder('Customer Directory') },
-      { path: 'settings', name: 'settings', ...placeholder('Store Settings', ['manager']) },
+      { path: 'settings', name: 'settings', ...placeholder('Store Settings', 'settings.manage') },
       { path: 'help', name: 'help', ...placeholder('Help Center') },
     ],
   },
@@ -44,7 +47,6 @@ const routes = [
     component: () => import('@/layouts/AuthLayout.vue'),
     children: [
       { path: 'login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { guestOnly: true, title: 'Sign in' } },
-      { path: 'register', name: 'register', component: () => import('@/views/RegisterView.vue'), meta: { guestOnly: true, title: 'Create account' } },
     ],
   },
 

@@ -13,6 +13,16 @@ export const formatDateTime = (iso) =>
 export const initials = (name = '') =>
   name.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0].toUpperCase()).join('')
 
+/**
+ * The first letter of a name, for avatar circles. Thai leading vowels (เ แ โ ใ ไ) are written before
+ * the consonant they belong to, so they are skipped: "เอกชัย" -> "อ".
+ */
+export const firstLetter = (name = '') => {
+  const chars = Array.from(String(name).trim())
+  const i = chars.findIndex((c) => !/[เแโใไ]/.test(c))
+  return (chars[i === -1 ? 0 : i] ?? 'U').toUpperCase()
+}
+
 /** "12.5" / "" / "abc" -> number (never NaN) */
 export const toNumber = (v) => {
   const n = parseFloat(String(v ?? '').replace(/,/g, ''))
@@ -36,3 +46,15 @@ export const sanitizeDecimal = (v, max = 2) => {
  */
 export const normalizeSearch = (s) =>
   String(s ?? '').normalize('NFC').toLowerCase().replace(/[\u0E48-\u0E4C]/g, '').trim()
+
+/** 1234567 -> "1.2M", 12500 -> "12.5k" — short labels for chart axes */
+export const compactNumber = (n) => {
+  const v = Math.abs(n)
+  if (v >= 1e6) return `${+(n / 1e6).toFixed(1)}M`
+  if (v >= 1e3) return `${+(n / 1e3).toFixed(1)}k`
+  return String(+n.toFixed(0))
+}
+
+/** local date -> "YYYY-MM-DD" (NOT toISOString, which shifts to UTC) */
+export const toISODate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+export const fromISODate = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d, 12) }

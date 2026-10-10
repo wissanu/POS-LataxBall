@@ -1,22 +1,59 @@
 <script setup>
-import { ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppBackground from '@/components/AppBackground.vue'
 import AppIcon from '@/components/AppIcon.vue'
 import { useAuthStore } from '@/stores/auth'
+import { firstLetter } from '@/utils/format'
 
 const auth = useAuthStore()
 const router = useRouter()
 
 const tabs = ['Order line', 'Table', 'Dishes', 'Delivery', 'Account']
 const activeTab = ref('Table')
-const badges = [
-  { t: 'J', bg: '#fecdd3', fg: '#9f1239' },
-  { t: 'T', bg: '#c7d2fe', fg: '#3730a3' },
-  { t: 'B', bg: '#92400e', fg: '#fff' },
+
+// ---- sidebar: 1) รายงานภาพรวม · 3) New Order · 4) Order List · 2) จัดแต่งระบบ, with divider lines (5) between the groups ----
+// Each link shows only if the signed-in user holds its permission (see 03_rbac.sql).
+const menu = [
+  { to: 'reports', label: 'รายงานภาพรวม', icon: 'chart', perm: ['report.view'] },
+  { divider: true },
+  { to: 'new-order', label: 'New Order', icon: 'plus', perm: ['purchase.create'] },
+  { to: 'orders', label: 'Order List', icon: 'clipboard', perm: ['purchase.read'] },
+  { divider: true },
+  { to: 'system', label: 'จัดแต่งระบบ', icon: 'gear', perm: ['user.manage', 'role.manage'] },
 ]
+const items = computed(() => {
+  const shown = menu.filter((m) => m.divider || auth.canAny(...m.perm))
+  // never start/end with a divider or show two in a row
+  return shown.filter((m, i) => !m.divider || (i > 0 && i < shown.length - 1 && !shown[i - 1].divider))
+})
+
+// ---- avatar menu (top right): one circle, click -> log out only ----
+const menuOpen = ref(false)
+const avatarRoot = ref(null)
+const avatarBtn = ref(null)
+const letter = computed(() => firstLetter(auth.user?.name))
+
+function onPointerDown(e) {
+  if (menuOpen.value && !avatarRoot.value?.contains(e.target)) menuOpen.value = false
+}
+function onKeydown(e) {
+  if (e.key === 'Escape' && menuOpen.value) {
+    menuOpen.value = false
+    avatarBtn.value?.focus()
+  }
+}
+onMounted(() => {
+  document.addEventListener('pointerdown', onPointerDown)
+  document.addEventListener('keydown', onKeydown)
+})
+onBeforeUnmount(() => {
+  document.removeEventListener('pointerdown', onPointerDown)
+  document.removeEventListener('keydown', onKeydown)
+})
 
 async function exit() {
+  menuOpen.value = false
   await auth.logout()
   router.push({ name: 'login' })
 }
@@ -39,8 +76,15 @@ async function exit() {
           <input placeholder="Search menu, order, etc" />
         </label>
         <button class="round" type="button" aria-label="Notifications"><AppIcon name="bell" /></button>
-        <div class="badges">
-          <span v-for="b in badges" :key="b.t" :style="{ background: b.bg, color: b.fg }">{{ b.t }}</span>
+        <div ref="avatarRoot" class="badges">
+          <button
+            ref="avatarBtn" type="button" class="avatar" :style="{ background: auth.avatar.bg, color: auth.avatar.fg }"
+            aria-haspopup="menu" :aria-expanded="menuOpen" :aria-label="`บัญชีของ ${auth.user?.name ?? ''}`"
+            @click="menuOpen = !menuOpen"
+          >{{ letter }}</button>
+          <div v-if="menuOpen" class="pop" role="menu">
+            <button type="button" role="menuitem" class="pop__item" @click="exit"><AppIcon name="logout" :size="15" /> ออกจากระบบ</button>
+          </div>
         </div>
       </div>
     </header>
@@ -56,8 +100,12 @@ async function exit() {
             </div>
           </div>
           <p class="group">POS Navigation</p>
-          <router-link :to="{ name: 'orders' }" class="link" active-class="link--on"><AppIcon name="clipboard" /> Order List</router-link>
-          <router-link :to="{ name: 'new-order' }" class="link" active-class="link--on"><AppIcon name="plus" /> New Order</router-link>
+          <nav class="menu" aria-label="POS Navigation">
+            <template v-for="(m, i) in items" :key="m.to ?? `divider-${i}`">
+              <hr v-if="m.divider" class="sep" />
+              <router-link v-else :to="{ name: m.to }" class="link" active-class="link--on"><AppIcon :name="m.icon" /> {{ m.label }}</router-link>
+            </template>
+          </nav>
         </div>
         <button class="exit" type="button" @click="exit"><AppIcon name="logout" /> Exit Session</button>
       </aside>
@@ -70,20 +118,25 @@ async function exit() {
 <style scoped>
 .shell { position: relative; height: 100%; display: flex; flex-direction: column; }
 .top, .body { position: relative; z-index: 1; }
+.top { z-index: 3; } /* above .body so the avatar pop-up is not covered */
 .top { height: 64px; flex: none; display: flex; align-items: center; justify-content: space-between; padding: 0 24px;
   background: rgba(230, 239, 250, .8); backdrop-filter: blur(6px); border-bottom: 1px solid rgba(255, 255, 255, .6); }
 .top__left, .top__right { display: flex; align-items: center; gap: 40px; }
 .top__right { gap: 16px; }
 .logo { font-size: 24px; font-weight: 800; letter-spacing: -0.6px; color: var(--blue-600); line-height: 32px; }
 .logo span { color: var(--slate-900); }
-nav { display: flex; gap: 28px; }
-nav button { font-size: 14px; font-weight: 500; color: var(--slate-500); padding: 2px 0 4px; border-bottom: 2px solid transparent; }
-nav button.on { color: var(--blue-600); font-weight: 600; border-color: var(--blue-600); }
+.top nav { display: flex; gap: 28px; }
+.top nav button { font-size: 14px; font-weight: 500; color: var(--slate-500); padding: 2px 0 4px; border-bottom: 2px solid transparent; }
+.top nav button.on { color: var(--blue-600); font-weight: 600; border-color: var(--blue-600); }
 .search { display: flex; align-items: center; gap: 8px; width: 256px; height: 30px; padding: 0 12px; border-radius: 9999px; background: rgba(255, 255, 255, .7); border: 1px solid #fff; color: var(--slate-400); }
 .search input { border: 0; background: none; outline: none; font-size: 12px; flex: 1; color: var(--slate-800); }
 .round { width: 36px; height: 36px; border-radius: 50%; background: var(--glass-strong); display: grid; place-items: center; box-shadow: 0 1px 2px rgba(0, 0, 0, .05); color: var(--slate-600); }
-.badges { display: flex; gap: 6px; padding-left: 9px; border-left: 1px solid rgba(203, 213, 225, .6); }
-.badges span { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; }
+.badges { position: relative; display: flex; padding-left: 9px; border-left: 1px solid rgba(203, 213, 225, .6); }
+.avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; box-shadow: 0 1px 2px rgba(0, 0, 0, .08); transition: box-shadow .15s; }
+.avatar:hover, .avatar[aria-expanded='true'] { box-shadow: 0 0 0 3px rgba(37, 99, 235, .18); }
+.pop { position: absolute; right: 0; top: calc(100% + 10px); z-index: 20; min-width: 168px; padding: 6px; background: #fff; border: 1px solid var(--slate-200); border-radius: var(--radius-md); box-shadow: var(--shadow-panel); }
+.pop__item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; border-radius: 8px; font-size: 13px; font-weight: 500; color: var(--slate-700); text-align: left; }
+.pop__item:hover { background: var(--red-50); color: #dc2626; }
 
 .body { flex: 1; min-height: 0; display: flex; gap: 12px; padding: 12px; }
 .side { width: 224px; flex: none; padding: 17px; display: flex; flex-direction: column; justify-content: space-between; }
@@ -92,10 +145,12 @@ nav button.on { color: var(--blue-600); font-weight: 600; border-color: var(--bl
 .me h4 { font-size: 12px; font-weight: 700; color: var(--slate-800); }
 .me p { font-size: 11px; color: var(--slate-400); }
 .group { font-size: 10px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: var(--slate-400); padding: 0 12px 10px; }
+.menu { display: flex; flex-direction: column; }
+.sep { width: calc(100% - 16px); margin: 8px 8px 12px; border: 0; border-top: 1px solid var(--slate-300); opacity: .8; }
 .link { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: var(--radius-md); font-size: 12px; font-weight: 500; color: var(--slate-600); margin-bottom: 6px; }
 .link:hover { background: rgba(255, 255, 255, .7); }
 .link--on, .link--on:hover { background: var(--blue-600); color: #fff; font-weight: 600; box-shadow: var(--shadow-blue); }
 .exit { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--radius-md); font-size: 12px; font-weight: 500; color: var(--slate-500); border-top: 1px solid rgba(226, 232, 240, .6); margin-top: 17px; padding-top: 25px; }
 .exit:hover { color: #dc2626; }
-@media (max-width: 1100px) { nav { display: none; } .side { display: none; } }
+@media (max-width: 1100px) { .top nav { display: none; } .side { display: none; } }
 </style>

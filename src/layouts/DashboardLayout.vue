@@ -13,15 +13,15 @@ const main = [
   { to: 'dashboard', label: 'Dashboard', icon: 'grid' },
   { to: 'tables', label: 'Table & Floor Plan', icon: 'table' },
   { to: 'orders', label: 'Orders', icon: 'receipt' },
-  { to: 'reports', label: 'Sales Reports', icon: 'chart', roles: ['manager'] },
-  { to: 'menu', label: 'Menu Management', icon: 'book', roles: ['manager'] },
+  { to: 'reports', label: 'Sales Reports', icon: 'chart', perm: 'report.view' },
+  { to: 'menu', label: 'Menu Management', icon: 'book', perm: 'settings.manage' },
 ]
 const ops = [
   { to: 'inventory', label: 'Inventory Reports', icon: 'box' },
   { to: 'shifts', label: 'Shift & Cash Log', icon: 'cash' },
   { to: 'customers', label: 'Customer Directory', icon: 'users' },
 ]
-const allowed = (list) => list.filter((i) => !i.roles || i.roles.includes(auth.role))
+const allowed = (list) => list.filter((i) => !i.perm || auth.can(i.perm))
 const mainItems = computed(() => allowed(main))
 
 const now = ref(new Date())
@@ -64,7 +64,7 @@ async function signOut() {
       </div>
 
       <div class="side__bottom">
-        <router-link v-if="auth.role === 'manager'" :to="{ name: 'settings' }" class="link link--quiet"><AppIcon name="settings" /> Store Settings</router-link>
+        <router-link v-if="auth.can('settings.manage')" :to="{ name: 'settings' }" class="link link--quiet"><AppIcon name="settings" /> Store Settings</router-link>
         <div class="link link--quiet toggle-row">
           <span><AppIcon :name="dark ? 'sun' : 'moon'" /> Dark Mode</span>
           <button type="button" class="switch" role="switch" :aria-checked="dark" aria-label="Dark mode" :class="{ on: dark }" @click="dark = !dark"><i /></button>

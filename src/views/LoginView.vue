@@ -6,49 +6,51 @@ import BaseInput from '@/components/BaseInput.vue'
 import BaseButton from '@/components/BaseButton.vue'
 import { useAuthStore } from '@/stores/auth'
 import { getErrorMessage } from '@/services/http'
+import { homeRouteFor } from '@/router/guards'
 
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
 
-const LAST_KEY = 'eatspace.lastCashier'
+const LAST_KEY = 'eatspace.lastUsername'
 const identifier = ref(localStorage.getItem(LAST_KEY) || '')
-const pin = ref('')
+const password = ref('')
 const remember = ref(true)
-const showPin = ref(false)
+const showPassword = ref(false)
 const error = ref('')
-const pinInput = ref(null)
+const passwordInput = ref(null)
 const isMock = import.meta.env.VITE_USE_MOCK === 'true'
 
+// demo shortcuts (mock mode only) — one per access level
 const quick = [
-  { id: 'CASHIER-802', name: 'Sophia G.', role: 'Table Lead', ini: 'SG', bg: '#dbeafe' },
-  { id: 'CASHIER-417', name: 'Liam Foster', role: 'Active Cashier', ini: 'LF', bg: '#e0e7ff' },
-  { id: 'CASHIER-233', name: 'Emma Clarke', role: 'Floor Host', ini: 'EC', bg: '#a7f3d0' },
+  { id: 'admin', name: 'Admin', role: 'ผู้ดูแลระบบ', ini: 'A', bg: '#dbeafe' },
+  { id: 'manager1', name: 'Manager', role: 'ผู้จัดการ', ini: 'M', bg: '#e0e7ff' },
+  { id: 'cashier1', name: 'Cashier', role: 'พนักงานรับซื้อ', ini: 'C', bg: '#a7f3d0' },
 ]
 
 const notice = computed(() => (route.query.reason === 'expired' ? 'Your session expired. Please sign in again.' : ''))
 
 function pick(c) {
   identifier.value = c.id
-  pinInput.value?.$el.querySelector('input').focus()
+  passwordInput.value?.$el.querySelector('input').focus()
 }
 
 async function submit() {
   error.value = ''
-  if (!identifier.value.trim() || !pin.value) {
-    error.value = 'Enter your cashier ID and PIN.'
+  if (!identifier.value.trim() || !password.value) {
+    error.value = 'Enter your username and password.'
     return
   }
   try {
-    await auth.login({ identifier: identifier.value.trim(), pin: pin.value })
+    await auth.login({ username: identifier.value.trim(), password: password.value })
     if (remember.value) localStorage.setItem(LAST_KEY, identifier.value.trim())
     else localStorage.removeItem(LAST_KEY)
     const r = route.query.redirect
     // only follow same-site paths (prevents open redirects)
-    router.replace(typeof r === 'string' && r.startsWith('/') && !r.startsWith('//') ? r : { name: 'new-order' })
+    router.replace(typeof r === 'string' && r.startsWith('/') && !r.startsWith('//') ? r : homeRouteFor(auth))
   } catch (e) {
     error.value = getErrorMessage(e, 'Could not sign in.')
-    pin.value = ''
+    password.value = ''
   }
 }
 </script>
@@ -67,7 +69,7 @@ async function submit() {
     <form class="card" novalidate @submit.prevent="submit">
       <span class="logo"><span class="mark mark--lg"><i /></span></span>
       <h1>Sign in to Terminal</h1>
-      <p class="sub">Enter your cashier credentials to unlock the register session</p>
+      <p class="sub">Enter your username and password to unlock the register session</p>
 
       <div class="pills">
         <span><AppIcon name="store" :size="13" /> Terminal #01</span>
@@ -78,11 +80,11 @@ async function submit() {
       <p v-if="error" class="alert" role="alert">{{ error }}</p>
 
       <div class="fields">
-        <BaseInput v-model="identifier" label="Cashier ID or Email" icon="id" placeholder="CASHIER-802" autocomplete="username" />
-        <BaseInput ref="pinInput" v-model="pin" label="Terminal PIN" icon="lock" :type="showPin ? 'text' : 'password'" placeholder="••••" inputmode="numeric" autocomplete="current-password">
-          <template #hint><a class="link" href="#" @click.prevent>Forgot PIN?</a></template>
+        <BaseInput v-model="identifier" label="Username" icon="id" placeholder="admin" autocomplete="username" />
+        <BaseInput ref="passwordInput" v-model="password" label="Password" icon="lock" :type="showPassword ? 'text' : 'password'" placeholder="••••••" autocomplete="current-password">
+          <template #hint><a class="link" href="#" @click.prevent>Forgot password?</a></template>
           <template #trailing>
-            <button type="button" class="eye" :aria-label="showPin ? 'Hide PIN' : 'Show PIN'" @click="showPin = !showPin"><AppIcon :name="showPin ? 'eye-off' : 'eye'" :size="18" /></button>
+            <button type="button" class="eye" :aria-label="showPassword ? 'Hide password' : 'Show password'" @click="showPassword = !showPassword"><AppIcon :name="showPassword ? 'eye-off' : 'eye'" :size="18" /></button>
           </template>
         </BaseInput>
       </div>
@@ -94,7 +96,7 @@ async function submit() {
 
       <BaseButton type="submit" size="lg" block :loading="auth.loading">Unlock Register <AppIcon name="chevron-right" :size="16" /></BaseButton>
 
-      <div class="divider"><span>Quick cashier switch</span></div>
+      <div class="divider"><span>Quick sign-in (demo)</span></div>
       <div class="quick">
         <button v-for="c in quick" :key="c.id" type="button" :class="{ on: identifier === c.id }" @click="pick(c)">
           <span :style="{ background: c.bg }">{{ c.ini }}</span>
@@ -103,8 +105,8 @@ async function submit() {
         </button>
       </div>
 
-      <p class="foot">Need a new cashier profile? <router-link :to="{ name: 'register' }">Contact Store Manager</router-link></p>
-      <p v-if="isMock" class="demo">Demo mode · any quick cashier + PIN <b>1234</b></p>
+      <p class="foot">Need an account? Ask your system administrator.</p>
+      <p v-if="isMock" class="demo">Demo mode · password for every demo account: <b>123456</b></p>
     </form>
   </main>
 

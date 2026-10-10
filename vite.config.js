@@ -9,10 +9,13 @@ export default defineConfig(({ mode }) => {
     resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
     server: {
       port: 5173,
-      // Forward /api/* to your real backend during development (when VITE_USE_MOCK=false)
-      proxy: env.VITE_API_PROXY_TARGET
-        ? { '/api': { target: env.VITE_API_PROXY_TARGET, changeOrigin: true } }
-        : undefined,
+      // Forward /api/* to the backend during development (when VITE_USE_MOCK=false)
+      proxy: {
+        '/api': {
+          target: env.VITE_API_PROXY_TARGET || 'http://localhost:3000',
+          changeOrigin: true,
+        },
+      },
     },
   }
 })

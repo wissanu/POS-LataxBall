@@ -2,13 +2,6 @@ import defaultContainerDoc from '@/config/containers.json'
 
 const ago = (min) => new Date(Date.now() - min * 60000).toISOString()
 
-// Demo accounts — every PIN is 1234
-export const users = [
-  { id: 1, cashierId: 'CASHIER-802', name: 'Sophia Grant', email: 'sophia.grant@eatspace.io', pin: '1234', role: 'manager', title: 'Table Lead', store: 'Eatspace Artisan Bistro', terminal: 'Terminal 01' },
-  { id: 2, cashierId: 'CASHIER-417', name: 'Liam Foster', email: 'liam.foster@eatspace.io', pin: '1234', role: 'cashier', title: 'Active Cashier', store: 'Eatspace Artisan Bistro', terminal: 'Terminal 01' },
-  { id: 3, cashierId: 'CASHIER-233', name: 'Emma Clarke', email: 'emma.clarke@eatspace.io', pin: '1234', role: 'cashier', title: 'Floor Host', store: 'Eatspace Artisan Bistro', terminal: 'Terminal 01' },
-]
-
 export const categories = []
 
 // สมาชิก (ลูกค้าประจำ) — ข้อมูลตัวอย่างสำหรับทดสอบเท่านั้น
