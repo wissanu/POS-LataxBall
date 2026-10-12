@@ -38,7 +38,6 @@ const dark = ref(false) // visual toggle only — wire to a theme store when you
 
 async function signOut() {
   await auth.logout()
-  router.push({ name: 'login' })
 }
 </script>
 

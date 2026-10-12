@@ -42,7 +42,8 @@ const roleName = (code) => roles.value.find((r) => r.code === code)?.name ?? cod
 const customerLabel = (id) => { const m = members.value.find((x) => x.id === id); return m ? `${m.no} · ${m.name}` : '' }
 // a stable colour per user (so the list does not change colour on every render)
 const HUES = ['#fecdd3|#9f1239', '#c7d2fe|#3730a3', '#a7f3d0|#065f46', '#bae6fd|#075985', '#ddd6fe|#5b21b6', '#fed7aa|#9a3412', '#99f6e4|#115e59', '#f5d0fe|#86198f']
-const avatarOf = (u) => { const [bg, fg] = HUES[u.id % HUES.length].split('|'); return { background: bg, color: fg } }
+const hashOf = (v) => [...String(v)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) // ids may be numbers (mock) or UUID strings (real API)
+const avatarOf = (u) => { const [bg, fg] = HUES[hashOf(u.id) % HUES.length].split('|'); return { background: bg, color: fg } }
 
 // ================= users tab =================
 const q = ref('')

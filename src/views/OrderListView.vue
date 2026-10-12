@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import OrderCard from '@/components/OrderCard.vue'
 import { useOrderStore } from '@/stores/orders'
@@ -20,13 +20,19 @@ const filters = [
 ]
 const chipIcon = { complete: 'check', rejected: 'x', pending: 'clock' }
 
-onMounted(() => orders.load())
+onMounted(() => {
+  orders.load()
+  orders.startPolling() // รับรายการที่ส่งมาจากหน้า New Order แบบต่อเนื่อง
+})
+onBeforeUnmount(() => orders.stopPolling())
+// ไม่แสดง error ในพื้นที่รายการ — แจ้งด้วย toast ครั้งเดียวเมื่อมีปัญหา
+watch(() => orders.error, (m) => m && toast.error(m))
 
 async function setStatus(order, status) {
   busyId.value = order.id
   try {
     await orders.setStatus(order.id, status)
-    toast.success(`Order #${order.id} ${status === 'complete' ? 'accepted' : 'rejected'}`)
+    toast.success(`Order #${order.no} ${status === 'complete' ? 'accepted' : 'rejected'}`)
   } catch (e) {
     toast.error(getErrorMessage(e, 'Could not update the order.'))
   } finally {
@@ -39,8 +45,8 @@ async function setStatus(order, status) {
   <section class="orders glass">
     <header class="head">
       <div>
-        <h1>Order List</h1>
-        <p>Real-time incoming dining tickets and preparation queues</p>
+        <h1>รายการรับซื้อสินค้า</h1>
+        <p>รับข้อมูล รายการรับซื้อสินค้า แบบต่อเนื่อง</p>
       </div>
       <div class="filter">
         <button type="button" class="filter__btn" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><AppIcon name="filter" :size="14" /> Filter</button>
@@ -53,12 +59,11 @@ async function setStatus(order, status) {
     </header>
 
     <div class="queue" aria-label="Recent tickets">
-      <span v-for="c in orders.queue" :key="c.id" class="chip" :class="`chip--${c.status}`"><AppIcon :name="chipIcon[c.status]" :size="12" /> #{{ c.id }}</span>
+      <span v-for="c in orders.queue" :key="c.id" class="chip" :class="`chip--${c.status}`"><AppIcon :name="chipIcon[c.status]" :size="12" /> #{{ c.no }}</span>
     </div>
 
     <p v-if="orders.loading" class="state">Loading orders…</p>
-    <p v-else-if="orders.error" class="state state--error">{{ orders.error }} <button type="button" @click="orders.load()">Retry</button></p>
-    <p v-else-if="!orders.visible.length" class="state">No orders in this view.</p>
+    <p v-else-if="!orders.visible.length" class="state">ยังไม่ได้รับรายการ</p>
     <div v-else class="grid">
       <OrderCard v-for="o in orders.visible" :key="o.id" :order="o" :busy="busyId === o.id" @accept="setStatus(o, 'complete')" @reject="setStatus(o, 'rejected')" />
     </div>

@@ -82,7 +82,7 @@ async function save() {
 
       <label v-if="isCustomerRole" class="select">
         <span>ลูกค้าที่ผูกกับบัญชีนี้</span>
-        <select v-model.number="form.customerId">
+        <select v-model="form.customerId">
           <option :value="null" disabled>— เลือกลูกค้า —</option>
           <option v-for="m in freeMembers" :key="m.id" :value="m.id">{{ m.no }} · {{ m.name }}</option>
         </select>

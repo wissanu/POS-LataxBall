@@ -7,14 +7,15 @@ const props = defineProps({ order: { type: Object, required: true }, busy: Boole
 defineEmits(['accept', 'reject'])
 
 const tones = ['#fecdd3', '#c7d2fe', '#fde68a', '#bbf7d0', '#bae6fd', '#e9d5ff']
-const avatarBg = tones[props.order.id % tones.length]
+// id is a UUID string: derive a stable colour from its characters
+const avatarBg = tones[[...String(props.order.id)].reduce((h, c) => (h * 31 + c.charCodeAt(0)) >>> 0, 7) % tones.length]
 </script>
 
 <template>
   <article class="card">
     <header>
       <div>
-        <h3>Order #{{ order.id }}</h3>
+        <h3>Order #{{ order.no }}</h3>
         <time :datetime="order.createdAt">{{ formatDateTime(order.createdAt) }}</time>
       </div>
       <span class="avatar" :style="{ background: avatarBg }" :title="order.customer.name">{{ initials(order.customer.name) }}</span>

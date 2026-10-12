@@ -54,8 +54,7 @@ onBeforeUnmount(() => {
 
 async function exit() {
   menuOpen.value = false
-  await auth.logout()
-  router.push({ name: 'login' })
+  await auth.logout() // revokes the session, clears tokens and reloads the login page
 }
 </script>
 

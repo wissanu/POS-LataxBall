@@ -1,14 +1,11 @@
 <script setup>
-import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import BaseButton from '@/components/BaseButton.vue'
 
 const auth = useAuthStore()
-const router = useRouter()
 
 async function exit() {
-  await auth.logout()
-  router.push({ name: 'login' })
+  await auth.logout() // revokes the session, clears tokens and reloads the login page
 }
 </script>
 

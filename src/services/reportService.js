@@ -10,4 +10,9 @@ import { http } from './http'
 //     }
 export const reportService = {
   overview: (params) => http.get('/reports/overview', { params }).then((r) => r.data),
+  // GET /reports/prices?from&to&grade=<code|all>
+  //  -> { range, grade, grades: [{ code, name }],
+  //       stats:  { avg, min, max, minAt: { date, grade }, maxAt: { date, grade }, daysWithData, days } | null,
+  //       series: [{ date, avg, min, max, prices: { [grade]: price } }] }   // วันที่ไม่มีราคา = null
+  prices: (params) => http.get('/reports/prices', { params }).then((r) => r.data),
 }

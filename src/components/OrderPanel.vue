@@ -66,7 +66,7 @@ async function send(status, message) {
   busy.value = true
   try {
     const order = await cart.submit(status)
-    toast.success(`${message} · #${order.id}`)
+    toast.success(`${message} · #${order.no}`)
   } catch (e) {
     toast.error(getErrorMessage(e, 'บันทึกรายการไม่สำเร็จ'))
   } finally {

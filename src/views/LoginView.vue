@@ -19,21 +19,7 @@ const remember = ref(true)
 const showPassword = ref(false)
 const error = ref('')
 const passwordInput = ref(null)
-const isMock = import.meta.env.VITE_USE_MOCK === 'true'
-
-// demo shortcuts (mock mode only) — one per access level
-const quick = [
-  { id: 'admin', name: 'Admin', role: 'ผู้ดูแลระบบ', ini: 'A', bg: '#dbeafe' },
-  { id: 'manager1', name: 'Manager', role: 'ผู้จัดการ', ini: 'M', bg: '#e0e7ff' },
-  { id: 'cashier1', name: 'Cashier', role: 'พนักงานรับซื้อ', ini: 'C', bg: '#a7f3d0' },
-]
-
 const notice = computed(() => (route.query.reason === 'expired' ? 'Your session expired. Please sign in again.' : ''))
-
-function pick(c) {
-  identifier.value = c.id
-  passwordInput.value?.$el.querySelector('input').focus()
-}
 
 async function submit() {
   error.value = ''
@@ -96,17 +82,7 @@ async function submit() {
 
       <BaseButton type="submit" size="lg" block :loading="auth.loading">Unlock Register <AppIcon name="chevron-right" :size="16" /></BaseButton>
 
-      <div class="divider"><span>Quick sign-in (demo)</span></div>
-      <div class="quick">
-        <button v-for="c in quick" :key="c.id" type="button" :class="{ on: identifier === c.id }" @click="pick(c)">
-          <span :style="{ background: c.bg }">{{ c.ini }}</span>
-          <b>{{ c.name }}</b>
-          <small>{{ c.role }}</small>
-        </button>
-      </div>
-
       <p class="foot">Need an account? Ask your system administrator.</p>
-      <p v-if="isMock" class="demo">Demo mode · password for every demo account: <b>123456</b></p>
     </form>
   </main>
 
@@ -148,16 +124,8 @@ h1 { text-align: center; font-size: 24px; font-weight: 800; letter-spacing: -.4p
 .divider { position: relative; text-align: center; margin: 22px 0 16px; }
 .divider::before { content: ''; position: absolute; left: 0; right: 0; top: 50%; height: 1px; background: var(--slate-200); }
 .divider span { position: relative; background: #fbfdff; padding: 0 12px; font-size: 10px; font-weight: 500; letter-spacing: .6px; text-transform: uppercase; color: var(--slate-500); }
-.quick { display: flex; gap: 8px; }
-.quick button { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 6px; border-radius: 14px; background: rgba(248, 250, 252, .8); border: 1px solid var(--slate-100); }
-.quick button.on { border: 2px solid #93c5fd; background: #fff; }
-.quick button span { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; color: var(--slate-800); margin-bottom: 4px; }
-.quick b { font-size: 12px; font-weight: 600; color: var(--slate-900); }
-.quick button.on b { color: var(--blue-700); }
-.quick small { font-size: 11px; color: var(--slate-600); }
 .foot { text-align: center; font-size: 12px; color: var(--slate-600); margin-top: 22px; }
 .foot a { font-weight: 600; color: var(--blue-700); margin-left: 4px; }
-.demo { text-align: center; font-size: 11px; color: var(--slate-500); margin-top: 10px; }
 .bottom { display: flex; justify-content: space-between; padding: 12px 24px; font-size: 12px; color: var(--slate-600); }
 .bottom span { display: flex; align-items: center; gap: 8px; }
 .bottom svg { color: var(--green-700); }
