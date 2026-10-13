@@ -20,3 +20,6 @@ export const formatThaiDate = (s) => {
   const d = s ? new Date(`${s}T00:00:00Z`) : null
   return d && !Number.isNaN(d.getTime()) ? thai.format(d) : '' // safe before the first load (empty date)
 }
+
+/** 'YYYY-MM-DDTHH:mm' (หรือ YYYY-MM-DD) -> "13 ต.ค. 2569 08:30" */
+export const formatThaiStamp = (s) => (s ? `${formatThaiDate(s.slice(0, 10))}${s.length > 10 ? ` ${s.slice(11, 16)}` : ''}` : '')

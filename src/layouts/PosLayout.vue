@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppBackground from '@/components/AppBackground.vue'
 import AppIcon from '@/components/AppIcon.vue'
+import TopSearch from '@/components/TopSearch.vue'
 import { useAuthStore } from '@/stores/auth'
 import { firstLetter } from '@/utils/format'
 
@@ -70,10 +71,7 @@ async function exit() {
         </nav>
       </div>
       <div class="top__right">
-        <label class="search">
-          <AppIcon name="search" />
-          <input placeholder="Search menu, order, etc" />
-        </label>
+        <TopSearch />
         <button class="round" type="button" aria-label="Notifications"><AppIcon name="bell" /></button>
         <div ref="avatarRoot" class="badges">
           <button
@@ -127,8 +125,6 @@ async function exit() {
 .top nav { display: flex; gap: 28px; }
 .top nav button { font-size: 14px; font-weight: 500; color: var(--slate-500); padding: 2px 0 4px; border-bottom: 2px solid transparent; }
 .top nav button.on { color: var(--blue-600); font-weight: 600; border-color: var(--blue-600); }
-.search { display: flex; align-items: center; gap: 8px; width: 256px; height: 30px; padding: 0 12px; border-radius: 9999px; background: rgba(255, 255, 255, .7); border: 1px solid #fff; color: var(--slate-400); }
-.search input { border: 0; background: none; outline: none; font-size: 12px; flex: 1; color: var(--slate-800); }
 .round { width: 36px; height: 36px; border-radius: 50%; background: var(--glass-strong); display: grid; place-items: center; box-shadow: 0 1px 2px rgba(0, 0, 0, .05); color: var(--slate-600); }
 .badges { position: relative; display: flex; padding-left: 9px; border-left: 1px solid rgba(203, 213, 225, .6); }
 .avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; box-shadow: 0 1px 2px rgba(0, 0, 0, .08); transition: box-shadow .15s; }

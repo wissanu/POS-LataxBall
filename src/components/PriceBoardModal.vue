@@ -65,7 +65,7 @@ async function submit() {
 <template>
   <BaseModal
     :model-value="modelValue" :title="editing ? 'แก้ราคารับซื้อวันนี้' : 'ตั้งราคารับซื้อวันนี้'"
-    :subtitle="`ประจำวันที่ ${formatThaiDate(board.date || board.yesterday.date)} · ราคาต่อกิโลกรัม แยกตามเกรด`" width="480px" @update:model-value="emit('update:modelValue', $event)"
+    :subtitle="`ประจำวันที่ ${formatThaiDate(board.date)} · ราคาต่อกิโลกรัม แยกตามเกรด`" width="480px" @update:model-value="emit('update:modelValue', $event)"
   >
     <form id="price-board-form" class="form" novalidate @submit.prevent="submit">
       <BaseInput

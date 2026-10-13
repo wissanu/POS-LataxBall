@@ -14,16 +14,19 @@ import { usePriceBoardStore } from '@/stores/priceBoard'
 import { useAuthStore } from '@/stores/auth'
 import { useCartStore } from '@/stores/cart'
 import { useOrderStore } from '@/stores/orders'
+import { useSearchStore } from '@/stores/search'
 import { useSettingsStore } from '@/stores/settings'
 import { useToast } from '@/composables/useToast'
 import { getErrorMessage } from '@/services/http'
 import { formatThaiDate } from '@/utils/dates'
+import { formatNumber, normalizeSearch } from '@/utils/format'
 
 const board = usePriceBoardStore()
 const auth = useAuthStore()
 const cart = useCartStore()
 const orders = useOrderStore()
 const settings = useSettingsStore()
+const find = useSearchStore()
 const toast = useToast()
 const router = useRouter()
 
@@ -38,7 +41,18 @@ onMounted(() => {
   board.start() // โหลดราคาวันนี้ + เฝ้าเที่ยงคืน (รีเซ็ตอัตโนมัติ)
   settings.load() // น้ำหนักภาชนะที่ตั้งไว้ (JSON)
 })
-onBeforeUnmount(() => board.stop())
+onBeforeUnmount(() => {
+  board.stop()
+  find.clearGrade() // ช่องค้นหาด้านบนใช้ค้นเกรดเฉพาะหน้านี้
+})
+
+// ---- ช่องค้นหาด้านบน: กรองรายการเกรด (ชื่อ / รหัสเกรด / ราคา) ----
+const query = computed(() => normalizeSearch(find.gradeQuery))
+const products = computed(() => {
+  const q = query.value
+  if (!q) return board.products
+  return board.products.filter((p) => normalizeSearch(`${p.name} ${p.grade} ${formatNumber(p.price)} ${p.price}`).includes(q))
+})
 
 // ---- เที่ยงคืน: ราคาเก่าใช้ไม่ได้แล้ว ล้างรายการที่ค้างอยู่ในตะกร้า ----
 watch(() => board.dayChanges, () => {
@@ -63,11 +77,14 @@ watch(() => board.items, (items) => {
 // ไม่แสดงข้อความ error ในพื้นที่รายการ — แจ้งด้วย toast ครั้งเดียวตอนมีปัญหา
 watch(() => board.error, (m) => m && toast.error(m))
 
-// ---- sync ข้อมูลเมื่อวาน ----
+// ---- sync: เมื่อวาน (ถ้าเมื่อวานร้านหยุด = วันเปิดทำการล่าสุด) ใช้ได้เมื่อยังไม่มีข้อมูลวันนี้ หรือ discard ทิ้งทั้งหมดแล้ว ----
+const syncLabel = computed(() =>
+  !board.syncSource || board.syncSource.isYesterday ? 'sync ข้อมูลเมื่อวาน' : `sync ข้อมูลล่าสุด (${formatThaiDate(board.syncSource.date)})`,
+)
 async function doSync() {
   try {
     await board.syncYesterday()
-    toast.success(`sync ข้อมูลของ ${formatThaiDate(board.board?.copiedFrom || board.yesterday.date)} แล้ว`)
+    toast.success(`sync ข้อมูลของ ${formatThaiDate(board.board?.copiedFrom)} แล้ว`)
   } catch (e) {
     toast.error(getErrorMessage(e, 'sync ไม่สำเร็จ'))
     board.load({ silent: true })
@@ -82,8 +99,14 @@ const discarding = ref(false)
 function startSelect() { picked.value = new Set(); selecting.value = true }
 function closeSelect() { selecting.value = false; picked.value = new Set(); confirmOpen.value = false }
 function toggleAll() {
-  picked.value = picked.value.size === board.items.length ? new Set() : new Set(board.items.map((i) => i.id))
+  // เลือก/ล้าง เฉพาะรายการที่มองเห็นอยู่ (ถ้ากำลังค้นหาอยู่ จะไม่ discard รายการที่ถูกซ่อน)
+  const ids = products.value.map((i) => i.id)
+  const all = ids.length > 0 && ids.every((id) => picked.value.has(id))
+  const next = new Set(picked.value)
+  ids.forEach((id) => (all ? next.delete(id) : next.add(id)))
+  picked.value = next
 }
+const allPicked = computed(() => products.value.length > 0 && products.value.every((i) => picked.value.has(i.id)))
 async function doDiscard() {
   discarding.value = true
   try {
@@ -144,6 +167,7 @@ function openDrafts() {
     <div v-if="board.exists" class="bar">
       <span class="bar__date">ราคารับซื้อ ประจำวันที่ <b>{{ formatThaiDate(board.date) }}</b></span>
       <span v-if="board.board?.copiedFrom" class="bar__sync"><AppIcon name="sync" :size="12" /> sync จาก {{ formatThaiDate(board.board.copiedFrom) }}</span>
+      <span v-if="board.missingGrades.length" class="bar__warn" role="status">ยังไม่มีราคาเกรด {{ board.missingGrades.join(', ') }}{{ canManage ? ' — กดปุ่ม New เพื่อตั้งราคา' : ' — แจ้งผู้จัดการให้ตั้งราคา' }}</span>
       <span class="bar__grow" />
       <template v-if="canManage && board.items.length">
         <template v-if="!selecting">
@@ -151,7 +175,7 @@ function openDrafts() {
         </template>
         <template v-else>
           <span class="bar__count" aria-live="polite">เลือกแล้ว {{ picked.size }} / {{ board.items.length }}</span>
-          <BaseButton variant="soft" size="sm" @click="toggleAll">{{ picked.size === board.items.length ? 'ล้างที่เลือก' : 'เลือกทั้งหมด' }}</BaseButton>
+          <BaseButton variant="soft" size="sm" @click="toggleAll">{{ allPicked ? 'ล้างที่เลือก' : find.gradeQuery ? 'เลือกที่แสดงอยู่' : 'เลือกทั้งหมด' }}</BaseButton>
           <button type="button" class="danger" :disabled="!picked.size" @click="confirmOpen = true"><AppIcon name="trash" :size="14" /> Discard ({{ picked.size }})</button>
           <BaseButton variant="soft" size="sm" @click="closeSelect">ยกเลิก</BaseButton>
         </template>
@@ -168,21 +192,32 @@ function openDrafts() {
         <h2>ยังไม่มีข้อมูลของวันนี้</h2>
         <p class="empty__or">หรือ</p>
         <button type="button" class="syncbtn" :disabled="!canManage || !board.canSync || board.busy" @click="doSync">
-          <AppIcon name="sync" :size="16" :class="{ spin: board.busy }" /> sync ข้อมูลเมื่อวาน
+          <AppIcon name="sync" :size="16" :class="{ spin: board.busy }" /> {{ syncLabel }}
         </button>
         <small v-if="!canManage" class="empty__note">ต้องให้ผู้จัดการหรือผู้ดูแลระบบเป็นผู้ตั้งราคาประจำวัน</small>
-        <small v-else-if="!board.yesterday.available" class="empty__note">ไม่มีข้อมูลของเมื่อวานให้ sync — กดปุ่ม New เพื่อตั้งราคาของวันนี้</small>
+        <small v-else-if="!board.canSync" class="empty__note">ไม่มีข้อมูลย้อนหลังให้ sync — กดปุ่ม New เพื่อตั้งราคาของวันนี้</small>
+        <small v-else-if="!board.syncSource.isYesterday" class="empty__note">เมื่อวานร้านหยุด จะ sync จากวันเปิดทำการล่าสุด ({{ formatThaiDate(board.syncSource.date) }})</small>
       </div>
 
-      <!-- มีกลุ่มของวันนี้ แต่ถูก discard จนหมด -->
+      <!-- มีกลุ่มของวันนี้ แต่ถูก discard จนหมด: sync ใหม่ได้ -->
       <div v-else-if="!board.items.length" class="empty">
         <span class="empty__img"><LumpImage /></span>
         <h2>ไม่มีรายการเหลืออยู่</h2>
         <p class="empty__note">รายการของวันนี้ถูก discard ทั้งหมดแล้ว กดปุ่ม New เพื่อตั้งราคาใหม่</p>
+        <template v-if="board.canSync">
+          <p class="empty__or">หรือ</p>
+          <button type="button" class="syncbtn" :disabled="!canManage || board.busy" @click="doSync">
+            <AppIcon name="sync" :size="16" :class="{ spin: board.busy }" /> {{ syncLabel }}
+          </button>
+          <small v-if="!canManage" class="empty__note">ต้องให้ผู้จัดการหรือผู้ดูแลระบบเป็นผู้ sync</small>
+          <small v-else-if="!board.syncSource.isYesterday" class="empty__note">เมื่อวานร้านหยุด จะ sync จากวันเปิดทำการล่าสุด ({{ formatThaiDate(board.syncSource.date) }})</small>
+        </template>
       </div>
 
+      <p v-else-if="!products.length" class="state">ไม่พบเกรดที่ตรงกับ “{{ find.gradeQuery }}” <button type="button" @click="find.clearGrade()">ล้างคำค้นหา</button></p>
+
       <template v-else>
-        <ProductCard v-for="p in board.products" :key="p.id" :product="p" :selectable="selecting" :selected="picked.has(p.id)" @select="onCard" />
+        <ProductCard v-for="p in products" :key="p.id" :product="p" :selectable="selecting" :selected="picked.has(p.id)" @select="onCard" />
       </template>
     </div>
   </section>
@@ -231,6 +266,7 @@ h1 { font-size: 20px; font-weight: 700; letter-spacing: -.2px; color: var(--slat
 .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 0 0; font-size: 12px; color: var(--slate-500); }
 .bar b { color: var(--slate-800); font-weight: 600; }
 .bar__sync { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 9999px; background: var(--blue-50); color: var(--blue-700); font-weight: 600; }
+.bar__warn { padding: 2px 9px; border-radius: 9999px; background: var(--amber-50); color: var(--amber-700); font-weight: 600; }
 .bar__grow { flex: 1; }
 .bar__count { font-weight: 600; color: var(--slate-700); }
 .danger { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border-radius: var(--radius-md); background: #dc2626; color: #fff; font-size: 12px; font-weight: 600; }

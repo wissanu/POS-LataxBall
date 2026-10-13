@@ -1,10 +1,19 @@
 <script setup>
 import AppIcon from './AppIcon.vue'
 import LumpImage from './LumpImage.vue'
+import { computed } from 'vue'
 import { formatMoney, formatDateTime, formatKg, initials } from '@/utils/format'
 
-const props = defineProps({ order: { type: Object, required: true }, busy: Boolean })
-defineEmits(['accept', 'reject'])
+const SHOWN = 3 // การ์ดแสดงสูงสุด 3 รายการ ที่เหลือสรุปเป็น "+N items" (ให้ 3 แถวต่อหน้าสูงเท่ากัน)
+const props = defineProps({
+  order: { type: Object, required: true },
+  busy: Boolean,
+  canCancel: Boolean, // มีสิทธิ์ยกเลิกใบที่ยืนยันแล้ว (ผู้จัดการขึ้นไป)
+})
+defineEmits(['accept', 'reject', 'cancel'])
+
+const shown = computed(() => props.order.items.slice(0, SHOWN))
+const extra = computed(() => Math.max(0, props.order.items.length - SHOWN) + (props.order.extraItems || 0))
 
 const tones = ['#fecdd3', '#c7d2fe', '#fde68a', '#bbf7d0', '#bae6fd', '#e9d5ff']
 // id is a UUID string: derive a stable colour from its characters
@@ -22,7 +31,7 @@ const avatarBg = tones[[...String(props.order.id)].reduce((h, c) => (h * 31 + c.
     </header>
 
     <ul>
-      <li v-for="(it, i) in order.items" :key="i">
+      <li v-for="(it, i) in shown" :key="i">
         <span class="thumb" aria-hidden="true"><template v-if="it.emoji">{{ it.emoji }}</template><LumpImage v-else /></span>
         <div class="meta">
           <h4>{{ it.name }}</h4>
@@ -37,7 +46,7 @@ const avatarBg = tones[[...String(props.order.id)].reduce((h, c) => (h * 31 + c.
 
     <footer>
       <div>
-        <p v-if="order.extraItems">+{{ order.extraItems }} items</p>
+        <p v-if="extra">+{{ extra }} items</p>
         <strong>{{ formatMoney(order.total) }}</strong>
       </div>
 
@@ -46,7 +55,10 @@ const avatarBg = tones[[...String(props.order.id)].reduce((h, c) => (h * 31 + c.
         <button type="button" class="act act--accept" :disabled="busy" aria-label="Accept order" @click="$emit('accept')"><AppIcon name="check" :size="16" /></button>
       </div>
       <span v-else-if="order.status === 'rejected'" class="pill pill--rejected"><AppIcon name="x" :size="12" /> REJECTED</span>
-      <span v-else-if="order.status === 'complete'" class="pill pill--complete"><AppIcon name="check" :size="12" /> COMPLETE</span>
+      <div v-else-if="order.status === 'complete'" class="actions">
+        <button v-if="canCancel" type="button" class="cancel" :disabled="busy" @click="$emit('cancel')">ยกเลิกใบนี้</button>
+        <span class="pill pill--complete"><AppIcon name="check" :size="12" /> COMPLETE</span>
+      </div>
       <span v-else class="pill pill--draft"><AppIcon name="file" :size="12" /> DRAFT</span>
     </footer>
   </article>
@@ -71,7 +83,10 @@ h4 { font-size: 14px; font-weight: 600; color: var(--slate-900); line-height: 18
 footer { display: flex; justify-content: space-between; align-items: flex-end; border-top: 1px solid var(--slate-100); padding-top: 12px; }
 footer p { font-size: 12px; color: var(--slate-500); }
 footer strong { font-size: 18px; color: var(--slate-900); }
-.actions { display: flex; gap: 8px; }
+.actions { display: flex; align-items: center; gap: 8px; }
+.cancel { font-size: 11px; font-weight: 600; color: var(--slate-500); padding: 6px 8px; border-radius: var(--radius-sm); text-decoration: underline; text-underline-offset: 2px; }
+.cancel:hover:not(:disabled) { color: #dc2626; background: var(--red-50); }
+.cancel:disabled { opacity: .5; cursor: not-allowed; }
 .act { width: 36px; height: 36px; border-radius: var(--radius-md); display: grid; place-items: center; background: #fff; border: 1px solid; transition: background .15s, color .15s; }
 .act--reject { border-color: #fecaca; color: #dc2626; }
 .act--reject:hover:not(:disabled) { background: #dc2626; color: #fff; }

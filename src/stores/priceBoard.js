@@ -9,7 +9,8 @@ const CHECK_MS = 15000 // day-change check (timers are throttled in background t
 
 /**
  * ราคารับซื้อของวันนี้ (หน้า New Order)
- *  - 1 วัน = 1 กลุ่ม มีเกรด A, B+, B, C+, C, D — ไม่มีข้อมูล = หน้าจอ "ยังไม่มีข้อมูลของวันนี้"
+ *  - 1 วัน = 1 กลุ่ม มีเกรด A+, A, B+, B, C+, C, D — ไม่มีข้อมูล = หน้าจอ "ยังไม่มีข้อมูลของวันนี้"
+ *  - sync ใช้ได้เฉพาะ: ยังไม่มีข้อมูลของวันนี้ หรือ discard ทิ้งทั้งหมดแล้ว — ต้นทาง = เมื่อวาน (ถ้าเมื่อวานร้านหยุด = วันเปิดทำการล่าสุด)
  *  - เที่ยงคืนเวลาไทย: รายการที่แสดงถูกรีเซ็ตทันที (เหลือหน้าจอว่าง) แล้วโหลดของวันใหม่ — เห็นเฉพาะวันนี้เท่านั้น
  *  - "วัน" ยึดเวลาเซิร์ฟเวอร์ (คำนวณส่วนต่างจากนาฬิกาเครื่องไว้) ไม่ใช่นาฬิกาเครื่องที่อาจตั้งผิด
  */
@@ -23,7 +24,9 @@ export const usePriceBoardStore = defineStore('priceBoard', () => {
   const board = ref(null) // { id, date, copiedFrom, createdAt }
   const grades = ref([]) // [{ code, name }] เกรดที่ใช้งาน
   const items = ref([]) // [{ id, grade, name, price }]
-  const yesterday = ref({ date: '', available: false })
+  const syncSource = ref(null) // { date, isYesterday } วันต้นทางที่ sync ได้ (null = sync ไม่ได้)
+  const discardedAll = ref(false) // มีกลุ่มของวันนี้ แต่ถูก discard ทิ้งทั้งหมด
+  const missingGrades = ref([]) // เกรดที่ใช้งานอยู่แต่ยังไม่มีราคาวันนี้ (เช่น เกรดใหม่)
   const dayChanges = ref(0) // +1 every time midnight passes (the page clears the cart on it)
 
   let offset = 0 // เวลาเซิร์ฟเวอร์ − เวลาเครื่อง (ms)
@@ -31,7 +34,7 @@ export const usePriceBoardStore = defineStore('priceBoard', () => {
   const today = () => bangkokDate(serverNow())
 
   const products = computed(() => items.value)
-  const canSync = computed(() => !exists.value && yesterday.value.available)
+  const canSync = computed(() => !!syncSource.value)
 
   function apply(res) {
     offset = Date.parse(res.serverTime) - Date.now()
@@ -41,7 +44,9 @@ export const usePriceBoardStore = defineStore('priceBoard', () => {
     grades.value = res.grades
     // keep the old array when nothing changed so the grid does not re-render on every poll
     if (JSON.stringify(items.value) !== JSON.stringify(res.items)) items.value = res.items
-    yesterday.value = res.yesterday
+    syncSource.value = res.syncSource ?? null
+    discardedAll.value = !!res.discardedAll
+    missingGrades.value = res.missingGrades ?? []
     loaded.value = true
     error.value = ''
   }
@@ -80,7 +85,9 @@ export const usePriceBoardStore = defineStore('priceBoard', () => {
     exists.value = false
     board.value = null
     items.value = []
-    yesterday.value = { date: '', available: false }
+    syncSource.value = null
+    discardedAll.value = false
+    missingGrades.value = []
     dayChanges.value++
     load({ silent: true })
     armMidnight()
@@ -111,5 +118,5 @@ export const usePriceBoardStore = defineStore('priceBoard', () => {
     document.removeEventListener('visibilitychange', onVisible)
   }
 
-  return { loaded, loading, busy, error, date, exists, board, grades, items, products, yesterday, canSync, dayChanges, load, save, syncYesterday, discard, start, stop }
+  return { loaded, loading, busy, error, date, exists, board, grades, items, products, syncSource, discardedAll, missingGrades, canSync, dayChanges, load, save, syncYesterday, discard, start, stop }
 })
