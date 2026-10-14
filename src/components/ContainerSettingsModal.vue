@@ -13,6 +13,9 @@ const props = defineProps({ modelValue: Boolean })
 const emit = defineEmits(['update:modelValue'])
 
 const settings = useSettingsStore()
+// หน้า New Order เลือกภาชนะได้แค่ 2 แบบ (ไม่ใส่ตะกร้าเข่ง / ตะกร้าเข่ง) จึงตั้งค่าเฉพาะ 2 แบบนี้
+const USED = ['none', 'keng']
+const visible = computed(() => settings.containers.filter((c) => USED.includes(c.id)))
 const toast = useToast()
 
 const draft = reactive({}) // containerId -> text in the field
@@ -28,7 +31,7 @@ watch(() => props.modelValue, (open) => {
 const valueOf = (c) => round2(toNumber(draft[c.id]))
 // only the numbers that actually changed (and are not locked) are sent
 const changes = computed(() =>
-  Object.fromEntries(settings.containers.filter((c) => !c.fixed && valueOf(c) !== c.tare).map((c) => [c.id, valueOf(c)])),
+  Object.fromEntries(visible.value.filter((c) => !c.fixed && valueOf(c) !== c.tare).map((c) => [c.id, valueOf(c)])),
 )
 const dirty = computed(() => Object.keys(changes.value).length > 0)
 const isChanged = (c) => c.id in changes.value
@@ -53,7 +56,7 @@ async function save() {
 <template>
   <BaseModal :model-value="modelValue" title="ตั้งค่าน้ำหนักภาชนะ" subtitle="น้ำหนักที่ระบบหักออกจากน้ำหนักรวมให้อัตโนมัติ (หน่วย กก.)" width="540px" @update:model-value="emit('update:modelValue', $event)">
     <form id="container-settings-form" class="list" novalidate @submit.prevent="save">
-      <div v-for="c in settings.containers" :key="c.id" class="row" :class="{ 'row--changed': isChanged(c), 'row--fixed': c.fixed }">
+      <div v-for="c in visible" :key="c.id" class="row" :class="{ 'row--changed': isChanged(c), 'row--fixed': c.fixed }">
         <span class="row__icon"><ContainerIcon :container="c" :size="34" /></span>
         <label :for="`tare-${c.id}`" class="row__label">
           {{ c.label }}

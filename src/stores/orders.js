@@ -3,15 +3,20 @@ import { ref, computed } from 'vue'
 import { orderService } from '@/services/orderService'
 import { getErrorMessage } from '@/services/http'
 
-export const PAGE_SIZE = 9 // 3 แถว x 3 หลัก ต่อหน้า
+export const PAGE_SIZE = 20 // 20 แถวต่อหน้า (server ตัดที่ 50)
+export const RANGES = [
+  { v: 'today', label: 'วันนี้' },
+  { v: '7d', label: '7 วัน' },
+  { v: '30d', label: '30 วัน' },
+]
 
 const emptySearch = () => ({ no: '', customer: null, from: '', to: '' })
 
 /**
  * รายการรับซื้อ (หน้า Order List)
- *  - ค่าเริ่มต้น: เฉพาะ "วันนี้" · toggle scope = 'all' เพื่อดูทุกวัน (หาใบย้อนหลัง)
- *  - แบ่งหน้าและกรองสถานะที่ server (หน้าละ 9 ใบ)
- *  - ค้นหา (เลขที่ใบ / ลูกค้า / ช่วงวันเวลา) = ค้นข้ามทุกวัน: toggle ถูกล็อกเป็น "ทุกวัน" ระหว่างค้นหา
+ *  - ไม่เคยดึง "ทุกวัน" ทั้งหมดอีกแล้ว: ค่าเริ่มต้น "วันนี้" · เลือกดู 7 วัน / 30 วันล่าสุดได้ (range)
+ *  - แบ่งหน้าและกรองสถานะที่ server (หน้าละ 20 แถว)
+ *  - ค้นหา (เลขที่ใบ / ลูกค้า / ช่วงวันเวลา) = ค้นข้ามทุกวันได้เสมอ ไม่ติดช่วงข้างบน (แคบด้วยเงื่อนไข + แบ่งหน้า + index ที่ server)
  */
 export const useOrderStore = defineStore('orders', () => {
   const list = ref([])
@@ -19,18 +24,20 @@ export const useOrderStore = defineStore('orders', () => {
   const loading = ref(false)
   const error = ref('')
   const statusFilter = ref('all')
-  const scope = ref('today') // 'today' | 'all'
+  const range = ref('today') // 'today' | '7d' | '30d'
+  const windowFrom = ref('') // ช่วงวันที่ที่ server ใช้จริงตอนไม่ค้นหา (YYYY-MM-DD)
+  const windowTo = ref('')
   const page = ref(1)
   const total = ref(0)
   const totalPages = ref(1)
   const search = ref(emptySearch()) // { no, customer: {id,name,code,...}|null, from, to }
 
   const hasSearch = computed(() => !!(search.value.no || search.value.customer || search.value.from || search.value.to))
-  const effectiveScope = computed(() => (hasSearch.value ? 'all' : scope.value))
 
   function params() {
     const s = search.value
-    const p = { scope: effectiveScope.value, page: page.value, pageSize: PAGE_SIZE }
+    const p = { page: page.value, pageSize: PAGE_SIZE }
+    if (!hasSearch.value) p.range = range.value
     if (statusFilter.value !== 'all') p.status = statusFilter.value
     if (s.no) p.q = s.no
     if (s.customer) p.customerId = s.customer.id
@@ -50,6 +57,8 @@ export const useOrderStore = defineStore('orders', () => {
       if (JSON.stringify(list.value) !== JSON.stringify(res.data)) list.value = res.data
       if (JSON.stringify(queue.value) !== JSON.stringify(res.queue)) queue.value = res.queue
       total.value = res.total
+      windowFrom.value = res.windowFrom || ''
+      windowTo.value = res.windowTo || ''
       totalPages.value = res.totalPages
       if (res.page !== page.value) page.value = res.page // server pulled us back to the last page
       error.value = ''
@@ -68,8 +77,8 @@ export const useOrderStore = defineStore('orders', () => {
     page.value = n
     load()
   }
-  function setScope(v) {
-    scope.value = v === 'all' ? 'all' : 'today'
+  function setRange(v) {
+    range.value = RANGES.some((r) => r.v === v) ? v : 'today'
     page.value = 1
     load()
   }
@@ -101,7 +110,7 @@ export const useOrderStore = defineStore('orders', () => {
   }
   /** leaving the page: back to the default view (today · page 1 · no search). The status filter is kept (Draft List sets it before navigating). */
   function resetView() {
-    scope.value = 'today'
+    range.value = 'today'
     page.value = 1
     search.value = emptySearch()
   }
@@ -131,7 +140,7 @@ export const useOrderStore = defineStore('orders', () => {
   }
 
   return {
-    list, queue, loading, error, statusFilter, scope, page, total, totalPages, search, hasSearch, effectiveScope,
-    load, goPage, setScope, setStatusFilter, applySearch, removeSearch, clearSearch, resetView, setStatus, startPolling, stopPolling,
+    list, queue, loading, error, statusFilter, range, windowFrom, windowTo, page, total, totalPages, search, hasSearch,
+    load, goPage, setRange, setStatusFilter, applySearch, removeSearch, clearSearch, resetView, setStatus, startPolling, stopPolling,
   }
 })

@@ -3,8 +3,8 @@ import { http } from './http'
 export const orderService = {
   /**
    * GET /orders — แบ่งหน้าที่ server
-   * params: { scope: 'today'|'all', page, pageSize, status, q, customerId, from, to }
-   * -> { scope, search, date, page, pageSize, total, totalPages, data: Order[], queue: [{ id, no, status }] }
+   * params: { range: 'today'|'7d'|'30d' (ใช้เมื่อไม่ค้นหา), page, pageSize, status, q, customerId, from, to }
+   * -> { range, search, windowFrom, windowTo, date, page, pageSize, total, totalPages, data: Order[], queue: [{ id, no, status }] }
    */
   list: (params) => http.get('/orders', { params }).then((r) => r.data),
   /** GET /orders/customers?q= — ค้นหาลูกค้า (ชื่อซ้ำได้) -> [{ id, type, code, name, phone, address, orderCount }] */

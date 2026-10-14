@@ -7,9 +7,9 @@ import { useCartStore } from '@/stores/cart'
 import { formatMoney, formatNumber, formatKg, sanitizeDecimal, toNumber, round2 } from '@/utils/format'
 
 /**
- * เพิ่ม / แก้ไข ส่วนลด 1 รายการ — 3 ขั้นตอน:
- *   ① ใช้กับ  : ทุกตะกร้า หรือเฉพาะตะกร้าที่เลือก
- *   ② รูปแบบ  : ลดต่อ กก. (บาท/กก.)  หรือ  ลดเป็นเงิน (บาท)
+ * เพิ่ม / แก้ไข "เพิ่มราคา" 1 รายการ (ร้านรับซื้อ = จ่ายเงินให้ลูกค้าเพิ่ม ไม่ใช่ส่วนลด) — 3 ขั้นตอน:
+ *   ① ใช้กับ  : ทุกตะกร้า หรือเฉพาะรายการที่เลือก
+ *   ② รูปแบบ  : เพิ่มต่อ กก. (บาท/กก.)  หรือ  เพิ่มเป็นเงิน (บาท)
  *   ③ จำนวน   : ช่องตัวเลขใหญ่ + ปุ่มลัด + ตัวอย่างผลลัพธ์ทันที
  */
 const props = defineProps({ modelValue: Boolean, editId: { type: Number, default: null } })
@@ -21,14 +21,14 @@ const error = ref('')
 
 const QUICK = { perKg: [0.5, 1, 2, 3, 5], amount: [10, 20, 50, 100, 200] }
 const MODES = [
-  { v: 'perKg', title: 'ลดต่อ กก.', sub: 'ลดราคาตามน้ำหนัก (บาท/กก.)' },
-  { v: 'amount', title: 'ลดเป็นเงิน', sub: 'หักเป็นจำนวนเงินคงที่ (บาท)' },
+  { v: 'perKg', title: 'เพิ่มต่อ กก.', sub: 'บวกราคาตามน้ำหนัก (บาท/กก.)' },
+  { v: 'amount', title: 'เพิ่มเป็นเงิน', sub: 'บวกเป็นจำนวนเงินคงที่ (บาท)' },
 ]
 
 watch(() => props.modelValue, (open) => {
   if (!open) return
   error.value = ''
-  const d = props.editId != null ? cart.discounts.find((x) => x.id === props.editId) : null
+  const d = props.editId != null ? cart.additions.find((x) => x.id === props.editId) : null
   form.scope = d ? d.scope : 'all'
   form.mode = d ? d.mode : 'perKg'
   form.value = d ? d.value : ''
@@ -36,17 +36,16 @@ watch(() => props.modelValue, (open) => {
 
 const targets = computed(() => [
   { scope: 'all', title: 'ทุกตะกร้า', chip: null, sub: `น้ำหนักสุทธิรวม ${formatKg(cart.totalNet)} · ยอดรวม ${formatMoney(cart.subtotal)}` },
-  ...cart.lines.map((l, i) => ({ scope: l.uid, title: `#${i + 1} ${l.name}`, chip: l.containerLabel, sub: `สุทธิ ${formatKg(cart.netOf(l))} · ${formatMoney(cart.amountOf(l))}` })),
+  ...cart.lines.map((l, i) => ({ scope: l.uid, title: `ลำดับ ${i + 1} · ${l.name}`, chip: l.containerLabel, sub: `สุทธิ ${formatKg(cart.netOf(l))} · ${formatMoney(cart.amountOf(l))}` })),
 ])
 
 const base = computed(() => {
   if (form.scope === 'all') return { net: cart.totalNet, amount: cart.subtotal, name: 'ทุกตะกร้า' }
   const l = cart.lines.find((x) => x.uid === form.scope)
-  return l ? { net: cart.netOf(l), amount: cart.amountOf(l), name: 'ตะกร้านี้' } : { net: 0, amount: 0, name: '' }
+  return l ? { net: cart.netOf(l), amount: cart.amountOf(l), name: 'รายการนี้' } : { net: 0, amount: 0, name: '' }
 })
 const v = computed(() => toNumber(form.value))
 const preview = computed(() => round2(form.mode === 'perKg' ? base.value.net * v.value : v.value))
-const exceeds = computed(() => preview.value > base.value.amount)
 const unit = computed(() => (form.mode === 'perKg' ? 'บาท/กก.' : 'บาท'))
 
 function setMode(m) {
@@ -59,21 +58,21 @@ function onValue(e) {
   e.target.value = form.value
 }
 function submit() {
-  if (!(v.value > 0)) { error.value = 'กรุณากรอกจำนวนส่วนลด (มากกว่า 0)'; return }
+  if (!(v.value > 0)) { error.value = 'กรุณากรอกจำนวนที่เพิ่ม (มากกว่า 0)'; return }
   const payload = { scope: form.scope, mode: form.mode, value: form.value }
-  if (props.editId != null) cart.updateDiscount(props.editId, payload)
-  else cart.addDiscount(payload)
+  if (props.editId != null) cart.updateAddition(props.editId, payload)
+  else cart.addAddition(payload)
   emit('update:modelValue', false)
 }
 </script>
 
 <template>
-  <BaseModal :model-value="modelValue" :title="editId != null ? 'แก้ไขส่วนลด' : 'เพิ่มส่วนลด'" subtitle="เพิ่มได้หลายรายการต่อลูกค้า 1 คน" width="540px" @update:model-value="emit('update:modelValue', $event)">
-    <form id="discount-form" class="form" novalidate @submit.prevent="submit">
+  <BaseModal :model-value="modelValue" :title="editId != null ? 'แก้ไขเพิ่มราคา' : 'เพิ่มราคา'" subtitle="เพิ่มได้หลายรายการต่อลูกค้า 1 คน" width="540px" @update:model-value="emit('update:modelValue', $event)">
+    <form id="addition-form" class="form" novalidate @submit.prevent="submit">
       <!-- ① -->
       <fieldset class="step">
-        <legend><i>1</i> ใช้ส่วนลดกับ</legend>
-        <div class="targets" role="radiogroup" aria-label="ใช้ส่วนลดกับ">
+        <legend><i>1</i> เพิ่มราคาให้กับ</legend>
+        <div class="targets" role="radiogroup" aria-label="เพิ่มราคาให้กับ">
           <label v-for="t in targets" :key="String(t.scope)" class="target" :class="{ on: form.scope === t.scope }">
             <input v-model="form.scope" type="radio" name="scope" :value="t.scope" />
             <span class="target__dot" aria-hidden="true" />
@@ -87,8 +86,8 @@ function submit() {
 
       <!-- ② -->
       <fieldset class="step">
-        <legend><i>2</i> รูปแบบส่วนลด</legend>
-        <div class="modes" role="radiogroup" aria-label="รูปแบบส่วนลด">
+        <legend><i>2</i> รูปแบบการเพิ่มราคา</legend>
+        <div class="modes" role="radiogroup" aria-label="รูปแบบการเพิ่มราคา">
           <button v-for="m in MODES" :key="m.v" type="button" role="radio" :aria-checked="form.mode === m.v" class="mode" :class="{ on: form.mode === m.v }" @click="setMode(m.v)">
             <b>{{ m.title }}</b><small>{{ m.sub }}</small>
           </button>
@@ -97,9 +96,9 @@ function submit() {
 
       <!-- ③ -->
       <fieldset class="step">
-        <legend><i>3</i> {{ form.mode === 'perKg' ? 'ลดกี่บาทต่อกิโลกรัม' : 'ลดเป็นจำนวนเงินเท่าไร' }}</legend>
+        <legend><i>3</i> {{ form.mode === 'perKg' ? 'เพิ่มกี่บาทต่อกิโลกรัม' : 'เพิ่มเป็นจำนวนเงินเท่าไร' }}</legend>
         <label class="big">
-          <span class="sr-only">{{ form.mode === 'perKg' ? 'ลดราคาต่อกิโลกรัม (บาท)' : 'จำนวนเงินที่ลด (บาท)' }}</span>
+          <span class="sr-only">{{ form.mode === 'perKg' ? 'เพิ่มราคาต่อกิโลกรัม (บาท)' : 'จำนวนเงินที่เพิ่ม (บาท)' }}</span>
           <input data-autofocus :value="form.value" inputmode="decimal" placeholder="0.00" maxlength="9" autocomplete="off" @input="onValue" />
           <em>{{ unit }}</em>
         </label>
@@ -107,17 +106,16 @@ function submit() {
           <button v-for="q in QUICK[form.mode]" :key="q" type="button" :class="{ on: toNumber(form.value) === q }" @click="form.value = String(q)">{{ formatNumber(q).replace(/\.00$/, '') }}</button>
         </div>
 
-        <div class="result" :class="{ 'result--warn': exceeds }" aria-live="polite">
+        <div class="result" aria-live="polite">
           <template v-if="v > 0">
-            <span class="result__amt">−{{ formatMoney(Math.min(preview, base.amount)) }}</span>
+            <span class="result__amt">+{{ formatMoney(preview) }}</span>
             <span class="result__why">
               <template v-if="form.mode === 'perKg'">{{ formatNumber(v) }} บาท × {{ formatKg(base.net) }}</template>
-              <template v-else>หักจาก{{ base.name }} (ยอด {{ formatMoney(base.amount) }})</template>
+              <template v-else>บวกเพิ่มให้{{ base.name }}</template>
             </span>
-            <span v-if="exceeds" class="result__warn">เกินยอด ระบบจะหักสูงสุดเท่ายอดที่เลือก</span>
-            <span v-else-if="form.mode === 'perKg' && base.net === 0" class="result__warn">ยังไม่ได้ใส่น้ำหนัก ยอดลดจะคำนวณเมื่อใส่น้ำหนักแล้ว</span>
+            <span v-if="form.mode === 'perKg' && base.net === 0" class="result__warn">ยังไม่มีน้ำหนักสุทธิ ยอดที่เพิ่มจะคำนวณเมื่อมีน้ำหนักแล้ว</span>
           </template>
-          <span v-else class="result__why">ใส่จำนวนเพื่อดูยอดส่วนลดทันที</span>
+          <span v-else class="result__why">ใส่จำนวนเพื่อดูยอดที่เพิ่มทันที</span>
         </div>
         <p v-if="error" class="alert" role="alert">{{ error }}</p>
       </fieldset>
@@ -125,7 +123,7 @@ function submit() {
 
     <template #footer>
       <BaseButton variant="soft" size="lg" @click="emit('update:modelValue', false)">ยกเลิก</BaseButton>
-      <BaseButton type="submit" form="discount-form" size="lg"><AppIcon name="check" :size="16" /> {{ editId != null ? 'บันทึก' : 'เพิ่มส่วนลด' }}</BaseButton>
+      <BaseButton type="submit" form="addition-form" size="lg"><AppIcon name="check" :size="16" /> {{ editId != null ? 'บันทึก' : 'เพิ่มราคา' }}</BaseButton>
     </template>
   </BaseModal>
 </template>
@@ -168,8 +166,7 @@ function submit() {
 .quick button.on { background: var(--blue-600); color: #fff; }
 
 .result { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin-top: 12px; padding: 12px 14px; border-radius: 14px; background: #f0fdf4; border: 1px solid #bbf7d0; min-height: 52px; }
-.result--warn { background: var(--amber-50); border-color: #fde68a; }
-.result__amt { font-size: 20px; font-weight: 700; color: #dc2626; }
+.result__amt { font-size: 20px; font-weight: 700; color: #15803d; }
 .result__why { font-size: 12px; line-height: 1.5; color: var(--slate-600); }
 .result__warn { flex-basis: 100%; font-size: 11px; line-height: 1.5; color: var(--amber-700); }
 .alert { margin-top: 10px; background: var(--red-50); color: var(--red-700); border: 1px solid #fecaca; border-radius: var(--radius-md); padding: 10px 12px; font-size: 12px; }

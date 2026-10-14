@@ -1,67 +1,61 @@
 <script setup>
-import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import AppIcon from './AppIcon.vue'
 import BaseButton from './BaseButton.vue'
-import MemberCombobox from './MemberCombobox.vue'
-import DiscountModal from './DiscountModal.vue'
+import AdditionModal from './AdditionModal.vue'
 import { useCartStore } from '@/stores/cart'
 import { useMemberStore } from '@/stores/members'
 import { useToast } from '@/composables/useToast'
 import { getErrorMessage } from '@/services/http'
-import { formatMoney, formatNumber, formatKg, sanitizeDecimal, toNumber } from '@/utils/format'
+import { formatMoney, formatNumber, formatKg, toNumber } from '@/utils/format'
 
+/**
+ * แผงรายการปัจจุบัน (ขวา) — แสดงผลเป็นข้อความทั้งหมด
+ *   ลูกค้า (เลือกที่หน้าต่างเกรด) · ตารางรายการ · เพิ่มราคา · สรุปยอด · ปุ่ม Draft / Bill & Print
+ *   กรอก/แก้ไข/ลบแถวน้ำหนัก: กดการ์ดเกรดในหน้า New Order (หน้าต่างเกรดจะแสดงแถวเดิมให้แก้ไข)
+ */
 const cart = useCartStore()
 const members = useMemberStore()
 const toast = useToast()
 
 const collapsed = ref(false)
-const search = ref('')
 const busy = ref(false)
-const discountOpen = ref(false)
-const editingDiscount = ref(null)
+const additionOpen = ref(false)
+const editingAddition = ref(null)
 
 onMounted(() => members.load())
 
 const badge = computed(() => (cart.customerType === 'member' ? cart.member?.no ?? '—' : null))
-const subtitle = computed(() => {
-  if (cart.customerType === 'general') return 'ลูกค้าทั่วไป (ไม่มีสมาชิก)'
-  return cart.member ? `ลูกค้าประจำ · ${cart.member.no} ${cart.member.name}` : 'ยังไม่ได้เลือกลูกค้าประจำ'
+const customerText = computed(() => {
+  if (cart.customerType === 'general') return { tag: 'ลูกค้าทั่วไป', name: '', ok: true }
+  return cart.member
+    ? { tag: 'ลูกค้าประจำ', name: `${cart.member.no} ${cart.member.name}`, ok: true }
+    : { tag: 'ลูกค้าประจำ', name: 'ยังไม่ได้เลือกลูกค้า', ok: false }
 })
-const shown = computed(() => {
-  const q = search.value.trim().toLowerCase()
-  return q ? cart.lines.filter((l) => l.name.toLowerCase().includes(q) || l.containerLabel.toLowerCase().includes(q)) : cart.lines
+
+// ตาราง: แถวของเกรด+ภาชนะเดียวกันอยู่ติดกัน (cart.setGroup รับประกัน) — แทรกหัวกลุ่มเมื่อเปลี่ยนเกรด/ภาชนะ
+const table = computed(() => {
+  const out = []
+  let prev = ''
+  cart.lines.forEach((l, i) => {
+    const key = `${l.productId}|${l.containerId}`
+    if (key !== prev) { out.push({ head: true, key: `h-${key}-${i}`, text: `${l.name} · ${l.containerLabel}` }); prev = key }
+    out.push({ head: false, key: l.uid, no: i + 1, l })
+  })
+  return out
 })
 const lineNo = (uid) => cart.lines.findIndex((l) => l.uid === uid) + 1
 
-// weight input: only digits + one dot, max 2 decimals; write the cleaned text back to the field
-function onGross(e, uid) {
-  const v = sanitizeDecimal(e.target.value)
-  if (v !== e.target.value) e.target.value = v
-  cart.setGross(uid, v)
-}
-
-// discounts
-function addDiscount() { editingDiscount.value = null; discountOpen.value = true }
-function editDiscount(id) { editingDiscount.value = id; discountOpen.value = true }
-const scopeLabel = (r) => (r.scope === 'all' ? 'ทุกตะกร้า' : `#${lineNo(r.scope)} ${r.line?.containerLabel ?? ''}`)
-const modeLabel = (r) => (r.mode === 'perKg' ? `ลด ${formatNumber(toNumber(r.value))} บาท/กก.` : 'ลดเป็นเงิน')
-
-// after choosing a container in the popup, jump straight to the weight field of the new line
-watch(() => cart.lastAddedUid, async (uid) => {
-  if (!uid) return
-  collapsed.value = false
-  search.value = ''
-  await nextTick()
-  const el = document.getElementById(`gross-${uid}`)
-  el?.scrollIntoView?.({ block: 'nearest' })
-  el?.focus()
-})
+function addAddition() { editingAddition.value = null; additionOpen.value = true }
+function editAddition(id) { editingAddition.value = id; additionOpen.value = true }
+const scopeLabel = (r) => (r.scope === 'all' ? 'ทุกตะกร้า' : `ลำดับ ${lineNo(r.scope)} ${r.line?.name ?? ''}`)
+const modeLabel = (r) => (r.mode === 'perKg' ? `เพิ่ม ${formatNumber(toNumber(r.value))} บาท/กก.` : 'เพิ่มเป็นเงิน')
 
 async function send(status, message) {
   if (!cart.lines.length || busy.value) return
   if (status !== 'draft') {
-    if (cart.customerType === 'member' && !cart.member) return toast.error('กรุณาเลือกลูกค้าประจำ')
-    if (cart.lines.some((l) => cart.netOf(l) <= 0)) return toast.error('กรุณาใส่น้ำหนักให้ครบทุกรายการ')
+    if (cart.customerType === 'member' && !cart.member) return toast.error('กรุณาเลือกลูกค้าประจำ (เลือกได้ที่หน้าต่างเกรด)')
+    if (cart.lines.some((l) => cart.netOf(l) <= 0)) return toast.error('น้ำหนักสินค้าต้องมากกว่าน้ำหนักภาชนะทุกแถว')
   }
   busy.value = true
   try {
@@ -85,7 +79,7 @@ async function send(status, message) {
         </span>
         <div>
           <h2>รายการใหม่ <i class="dot" /></h2>
-          <p>{{ subtitle }}</p>
+          <p>{{ cart.lines.length ? `${cart.lines.length} แถว · น้ำหนักสุทธิ ${formatKg(cart.totalNet)}` : 'ยังไม่มีรายการ' }}</p>
         </div>
       </div>
       <button class="toggle" type="button" :aria-expanded="!collapsed" :aria-label="collapsed ? 'ขยายแผงรายการ' : 'ย่อแผงรายการ'" @click="collapsed = !collapsed">
@@ -94,99 +88,73 @@ async function send(status, message) {
     </header>
 
     <template v-if="!collapsed">
-      <!-- ลูกค้า: ประจำ (ค้นหาด้วยชื่อ/รหัส) หรือ ทั่วไป -->
+      <!-- ลูกค้า: ข้อความอย่างเดียว (เลือกที่หน้าต่างเกรด) -->
       <section class="customer" aria-label="ลูกค้า">
-        <div class="seg" role="radiogroup" aria-label="ประเภทลูกค้า">
-          <button type="button" role="radio" :aria-checked="cart.customerType === 'member'" :class="{ on: cart.customerType === 'member' }" @click="cart.customerType = 'member'">ลูกค้าประจำ</button>
-          <button type="button" role="radio" :aria-checked="cart.customerType === 'general'" :class="{ on: cart.customerType === 'general' }" @click="cart.customerType = 'general'">ลูกค้าทั่วไป</button>
-        </div>
-        <MemberCombobox v-if="cart.customerType === 'member'" v-model="cart.memberId" :members="members.items" />
-        <p v-if="members.error && cart.customerType === 'member'" class="err">{{ members.error }} <button type="button" @click="members.load(true)">ลองใหม่</button></p>
+        <span class="customer__tag">{{ customerText.tag }}</span>
+        <b v-if="customerText.name" :class="{ 'customer__name--warn': !customerText.ok }">{{ customerText.name }}</b>
       </section>
 
       <div class="list-head">
         <h3>รายการสินค้า <span>{{ cart.lines.length }}</span></h3>
-        <label v-if="cart.lines.length > 2" class="mini-search">
-          <AppIcon name="search" :size="12" />
-          <input v-model="search" placeholder="ค้นหา" aria-label="ค้นหาในรายการ" />
-        </label>
         <button v-if="cart.lines.length" type="button" class="clear" @click="cart.clear()">ล้างทั้งหมด</button>
       </div>
 
-      <ul class="items scroll-y">
-        <li v-if="!shown.length" class="empty">
-          {{ cart.lines.length ? 'ไม่พบรายการที่ค้นหา' : 'ยังไม่มีรายการ กดเลือกสินค้าด้านซ้ายเพื่อเพิ่ม' }}
-        </li>
+      <div class="tbl scroll-y">
+        <p v-if="!cart.lines.length" class="empty">ยังไม่มีรายการ กดเลือกเกรดด้านซ้ายเพื่อกรอกน้ำหนัก</p>
+        <table v-else>
+          <thead>
+            <tr><th>ลำดับ</th><th>น้ำหนักภาชนะ</th><th>น้ำหนักสินค้า</th><th>ราคาต่อ กก.</th><th>ยอดรวม</th></tr>
+          </thead>
+          <tbody>
+            <template v-for="row in table" :key="row.key">
+              <tr v-if="row.head" class="grp"><th colspan="5" scope="colgroup">{{ row.text }}</th></tr>
+              <tr v-else>
+                <td class="c">{{ row.no }}</td>
+                <td>{{ formatNumber(cart.tareOf(row.l)) }}</td>
+                <td>{{ formatNumber(toNumber(row.l.gross)) }}</td>
+                <td>{{ formatNumber(row.l.pricePerKg) }}</td>
+                <td class="amt">
+                  {{ formatNumber(cart.amountOf(row.l)) }}
+                  <small v-if="cart.lineAdditionOf(row.l.uid) > 0">+{{ formatNumber(cart.lineAdditionOf(row.l.uid)) }}</small>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
 
-        <li v-for="line in shown" :key="line.uid" class="item">
-          <div class="item__top">
-            <div>
-              <h4><span class="no">#{{ lineNo(line.uid) }}</span> {{ line.name }}</h4>
-              <p class="meta">
-                <span class="chip">{{ line.containerLabel }}</span> {{ formatNumber(line.pricePerKg) }} บาท/กก.
-                <span v-if="cart.lineDiscountOf(line.uid) > 0" class="chip chip--red">ลด −{{ formatMoney(cart.lineDiscountOf(line.uid)) }}</span>
-              </p>
-            </div>
-            <button type="button" class="icon-btn" :aria-label="`ลบ ${line.name}`" @click="cart.removeLine(line.uid)"><AppIcon name="trash" :size="14" /></button>
-          </div>
-
-          <div class="weights">
-            <label class="wfield">
-              <span>น้ำหนักรวม</span>
-              <span class="wbox">
-                <input :id="`gross-${line.uid}`" :value="line.gross" inputmode="decimal" placeholder="0.00" maxlength="9" autocomplete="off" @input="onGross($event, line.uid)" />
-                <em>กก.</em>
-              </span>
-            </label>
-            <!-- read-only: ค่านี้ตั้งจากปุ่มฟันเฟือง ไม่ใช่ช่องกรอก -->
-            <div class="wfield">
-              <span>หักภาชนะ</span>
-              <span class="ro" :class="{ 'ro--zero': !cart.tareOf(line) }" title="ตั้งค่าได้ที่ปุ่มฟันเฟือง">{{ formatNumber(cart.tareOf(line)) }} <em>กก.</em></span>
-            </div>
-          </div>
-
-          <div class="item__foot">
-            <span>สุทธิ <b>{{ formatKg(cart.netOf(line)) }}</b></span>
-            <strong>{{ formatMoney(cart.amountOf(line)) }}</strong>
-          </div>
-        </li>
-      </ul>
-
-      <!-- ส่วนลด: หลายรายการต่อลูกค้า 1 คน -->
-      <section class="disc" aria-label="ส่วนลด">
-        <div class="disc__head">
-          <h3><AppIcon name="tag" :size="14" /> ส่วนลด <span v-if="cart.discounts.length">{{ cart.discounts.length }}</span></h3>
-          <button type="button" class="disc__add" :disabled="!cart.lines.length" @click="addDiscount"><AppIcon name="plus" :size="13" /> เพิ่มส่วนลด</button>
+      <!-- เพิ่มราคา: หลายรายการต่อลูกค้า 1 คน (ร้านรับซื้อ = จ่ายลูกค้าเพิ่ม) -->
+      <section class="add" aria-label="เพิ่มราคา">
+        <div class="add__head">
+          <h3><AppIcon name="tag" :size="14" /> เพิ่มราคา <span v-if="cart.additions.length">{{ cart.additions.length }}</span></h3>
+          <button type="button" class="add__btn" :disabled="!cart.lines.length" @click="addAddition"><AppIcon name="plus" :size="13" /> เพิ่มราคา</button>
         </div>
-        <ul v-if="cart.discountRows.length" class="disc__list scroll-y">
-          <li v-for="r in cart.discountRows" :key="r.id" class="drow">
-            <button type="button" class="drow__main" :aria-label="`แก้ไขส่วนลด ${scopeLabel(r)} ${modeLabel(r)}`" @click="editDiscount(r.id)">
-              <span class="drow__scope" :class="{ 'drow__scope--all': r.scope === 'all' }">{{ scopeLabel(r) }}</span>
-              <span class="drow__text">{{ modeLabel(r) }}</span>
-              <span class="drow__amt">−{{ formatMoney(r.raw) }}</span>
+        <ul v-if="cart.additionRows.length" class="add__list scroll-y">
+          <li v-for="r in cart.additionRows" :key="r.id" class="arow">
+            <button type="button" class="arow__main" :aria-label="`แก้ไขเพิ่มราคา ${scopeLabel(r)} ${modeLabel(r)}`" @click="editAddition(r.id)">
+              <span class="arow__scope" :class="{ 'arow__scope--all': r.scope === 'all' }">{{ scopeLabel(r) }}</span>
+              <span class="arow__text">{{ modeLabel(r) }}</span>
+              <span class="arow__amt">+{{ formatMoney(r.amount) }}</span>
             </button>
-            <button type="button" class="drow__del" :aria-label="`ลบส่วนลด ${scopeLabel(r)}`" @click="cart.removeDiscount(r.id)"><AppIcon name="x" :size="13" /></button>
+            <button type="button" class="arow__del" :aria-label="`ลบเพิ่มราคา ${scopeLabel(r)}`" @click="cart.removeAddition(r.id)"><AppIcon name="x" :size="13" /></button>
           </li>
         </ul>
-        <p v-if="cart.discountClamped" class="warn">ส่วนลดรวมเกินยอด ระบบหักสูงสุดเท่ายอดที่มี</p>
       </section>
 
       <dl class="summary">
         <div><dt>น้ำหนักสุทธิรวม</dt><dd>{{ formatKg(cart.totalNet) }}</dd></div>
         <div><dt>ยอดรวม</dt><dd>{{ formatMoney(cart.subtotal) }}</dd></div>
-        <div><dt>ส่วนลด</dt><dd :class="{ minus: cart.discountAmount > 0 }">{{ cart.discountAmount > 0 ? '−' : '' }}{{ formatMoney(cart.discountAmount) }}</dd></div>
+        <div><dt>เพิ่มราคา</dt><dd :class="{ plus: cart.additionAmount > 0 }">{{ cart.additionAmount > 0 ? '+' : '' }}{{ formatMoney(cart.additionAmount) }}</dd></div>
         <div class="total"><dt>ยอดสุทธิ</dt><dd>{{ formatMoney(cart.total) }}</dd></div>
       </dl>
 
       <div class="actions">
-        <BaseButton variant="dark" size="sm" :loading="busy" :disabled="!cart.lines.length" @click="send('pending', 'ส่งรายการแล้ว')">KOT &amp; Print</BaseButton>
-        <BaseButton variant="soft" size="sm" :disabled="!cart.lines.length" @click="send('draft', 'บันทึกฉบับร่างแล้ว')"><AppIcon name="file" :size="14" /> Draft</BaseButton>
-        <BaseButton variant="primary" :disabled="!cart.lines.length" @click="send('pending', 'พร้อมชำระเงิน')"><AppIcon name="wallet" /> Bill &amp; Payment</BaseButton>
-        <BaseButton variant="success" :disabled="!cart.lines.length" @click="send('pending', 'พิมพ์บิลแล้ว')"><AppIcon name="printer" /> Bill &amp; Print</BaseButton>
+        <BaseButton variant="soft" :disabled="!cart.lines.length" @click="send('draft', 'บันทึกฉบับร่างแล้ว')"><AppIcon name="file" :size="14" /> Draft</BaseButton>
+        <BaseButton variant="success" :loading="busy" :disabled="!cart.lines.length" @click="send('pending', 'พิมพ์บิลแล้ว')"><AppIcon name="printer" /> Bill &amp; Print</BaseButton>
       </div>
     </template>
 
-    <DiscountModal v-model="discountOpen" :edit-id="editingDiscount" />
+    <AdditionModal v-model="additionOpen" :edit-id="editingAddition" />
   </aside>
 </template>
 
@@ -203,77 +171,53 @@ h2 { font-size: 13px; font-weight: 700; color: var(--slate-900); display: flex; 
 .who p { font-size: 11px; line-height: 1.5; color: var(--slate-500); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 240px; }
 .toggle { flex: none; width: 28px; height: 28px; border-radius: var(--radius-sm); background: var(--slate-100); display: grid; place-items: center; color: var(--slate-600); }
 
-/* customer — z-index so the search dropdown floats above the list below */
-.customer { position: relative; z-index: 5; display: flex; flex-direction: column; gap: 8px; padding: 12px 0 8px; }
-.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: var(--slate-100); border-radius: var(--radius-md); }
-.seg button { padding: 7px 8px; border-radius: 9px; font-size: 12px; font-weight: 600; line-height: 1.4; color: var(--slate-500); transition: background .15s, color .15s; }
-.seg button.on { background: #fff; color: var(--blue-700); box-shadow: 0 1px 3px rgba(15, 23, 42, .12); }
-.err { font-size: 11px; color: #dc2626; }
-.err button { color: var(--blue-600); font-weight: 600; margin-left: 6px; }
+.customer { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; margin: 12px 0 4px; padding: 10px 12px; border-radius: var(--radius-md); background: var(--slate-50); border: 1px solid var(--slate-100); font-size: 13px; line-height: 1.5; }
+.customer__tag { font-size: 11px; font-weight: 700; padding: 1px 9px; border-radius: 9999px; background: var(--blue-100); color: var(--blue-700); }
+.customer b { color: var(--slate-900); overflow-wrap: anywhere; }
+.customer__name--warn { color: var(--amber-700) !important; font-weight: 600; }
 
-/* lines */
-.list-head { display: flex; align-items: center; gap: 8px; padding: 6px 0 8px; }
+.list-head { display: flex; align-items: center; gap: 8px; padding: 8px 0; }
 .list-head h3 { font-size: 12px; font-weight: 700; color: var(--slate-700); line-height: 1.5; margin-right: auto; }
-.list-head h3 span, .disc__head h3 span { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: var(--blue-100); color: var(--blue-700); font-size: 11px; text-align: center; }
-.mini-search { display: flex; align-items: center; gap: 4px; height: 24px; padding: 0 8px; background: #fff; border: 1px solid var(--slate-200); border-radius: 8px; color: var(--slate-400); width: 92px; }
-.mini-search input { width: 100%; min-width: 0; border: 0; outline: none; background: none; font-size: 11px; color: var(--slate-800); }
+.list-head h3 span, .add__head h3 span { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: var(--blue-100); color: var(--blue-700); font-size: 11px; text-align: center; }
 .clear { font-size: 11px; font-weight: 600; color: var(--slate-500); }
 .clear:hover { color: #dc2626; }
 
-.items { flex: 1; min-height: 120px; list-style: none; margin: 0; padding: 2px 4px 4px 0; display: flex; flex-direction: column; gap: 8px; }
+.tbl { flex: 1; min-height: 120px; padding-right: 2px; }
 .empty { text-align: center; color: var(--slate-400); font-size: 12px; line-height: 1.6; padding: 28px 12px; }
-.item { background: rgba(248, 250, 252, .8); border: 1px solid var(--slate-100); border-radius: var(--radius-md); padding: 11px; display: flex; flex-direction: column; gap: 9px; }
-.item__top { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
-.item h4 { font-size: 13px; font-weight: 700; line-height: 1.5; color: var(--slate-800); overflow-wrap: anywhere; }
-.item h4 .no { color: var(--blue-600); margin-right: 2px; }
-.meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; font-size: 11px; line-height: 1.5; color: var(--slate-500); }
-.chip { background: var(--blue-50); color: var(--blue-700); font-weight: 600; padding: 1px 8px; border-radius: 6px; }
-.chip--red { background: var(--red-50); color: #dc2626; }
-.icon-btn { padding: 4px; color: var(--slate-400); border-radius: 6px; flex: none; }
-.icon-btn:hover { color: #dc2626; background: var(--red-50); }
+table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+thead th { position: sticky; top: 0; z-index: 1; padding: 7px 4px; background: var(--slate-100); color: var(--slate-600); font-size: 10.5px; font-weight: 700; line-height: 1.3; text-align: right; }
+thead th:first-child { text-align: center; border-radius: 8px 0 0 8px; }
+thead th:last-child { border-radius: 0 8px 8px 0; }
+tbody td { padding: 7px 4px; text-align: right; color: var(--slate-800); font-weight: 600; border-bottom: 1px solid var(--slate-100); }
+tbody td.c { text-align: center; color: var(--slate-500); }
+.grp th { padding: 9px 4px 3px; text-align: left; font-size: 11.5px; font-weight: 700; color: var(--blue-700); background: none; position: static; }
+.amt { color: var(--blue-600) !important; font-weight: 700 !important; }
+.amt small { display: block; font-size: 10px; font-weight: 600; color: #15803d; }
 
-.weights { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.wfield { display: flex; flex-direction: column; gap: 3px; }
-.wfield > span:first-child { font-size: 10px; font-weight: 600; line-height: 1.4; color: var(--slate-500); }
-.wbox { position: relative; display: flex; align-items: center; }
-.wbox input { width: 100%; height: 34px; padding: 0 34px 0 10px; text-align: right; font-size: 13px; font-weight: 700; color: var(--slate-900); background: #fff; border: 1px solid var(--slate-200); border-radius: 10px; outline: none; }
-.wbox input:focus { border-color: var(--blue-600); box-shadow: 0 0 0 3px rgba(37, 99, 235, .15); }
-.wbox input::placeholder { color: var(--slate-300); font-weight: 500; }
-.wbox em { position: absolute; right: 9px; font-style: normal; font-size: 11px; color: var(--slate-400); pointer-events: none; }
-/* read-only tare: looks like text, not a field */
-.ro { height: 34px; display: flex; align-items: center; justify-content: flex-end; gap: 4px; padding: 0 10px; font-size: 13px; font-weight: 700; color: var(--slate-700); background: transparent; border: 1px dashed var(--slate-200); border-radius: 10px; cursor: default; user-select: none; }
-.ro em { font-style: normal; font-size: 11px; font-weight: 400; color: var(--slate-400); }
-.ro--zero { color: var(--slate-400); font-weight: 500; }
-.item__foot { display: flex; justify-content: space-between; align-items: baseline; padding-top: 8px; border-top: 1px dashed var(--slate-200); font-size: 12px; color: var(--slate-500); }
-.item__foot b { color: var(--slate-800); }
-.item__foot strong { font-size: 15px; color: var(--blue-600); }
-
-/* discounts */
-.disc { padding: 10px 0 4px; border-top: 1px solid rgba(226, 232, 240, .8); }
-.disc__head { display: flex; align-items: center; justify-content: space-between; }
-.disc__head h3 { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; line-height: 1.5; color: var(--slate-700); }
-.disc__add { display: inline-flex; align-items: center; gap: 4px; padding: 5px 11px; border-radius: 9px; font-size: 11px; font-weight: 700; color: var(--blue-700); background: var(--blue-50); border: 1px solid var(--blue-100); transition: background .15s; }
-.disc__add:hover:not(:disabled) { background: var(--blue-100); }
-.disc__add:disabled { opacity: .5; cursor: not-allowed; }
-.disc__list { list-style: none; margin: 8px 0 0; padding: 0 2px 0 0; max-height: 108px; display: flex; flex-direction: column; gap: 5px; }
-.drow { display: flex; align-items: stretch; background: #fff; border: 1px solid var(--slate-100); border-radius: 10px; overflow: hidden; }
-.drow:hover { border-color: #bfdbfe; }
-.drow__main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 7px 4px 7px 10px; text-align: left; font-size: 12px; line-height: 1.5; }
-.drow__scope { flex: none; padding: 0 8px; border-radius: 6px; font-size: 11px; font-weight: 700; background: var(--blue-100); color: var(--blue-700); white-space: nowrap; }
-.drow__scope--all { background: var(--slate-100); color: var(--slate-600); }
-.drow__text { flex: 1; min-width: 0; color: var(--slate-600); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.drow__amt { flex: none; font-weight: 700; color: #dc2626; }
-.drow__del { flex: none; width: 28px; display: grid; place-items: center; color: var(--slate-400); }
-.drow__del:hover { background: var(--red-50); color: #dc2626; }
-.warn { margin-top: 6px; font-size: 11px; line-height: 1.5; color: var(--amber-700); }
+.add { padding: 10px 0 4px; border-top: 1px solid rgba(226, 232, 240, .8); }
+.add__head { display: flex; align-items: center; justify-content: space-between; }
+.add__head h3 { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 700; line-height: 1.5; color: var(--slate-700); }
+.add__btn { display: inline-flex; align-items: center; gap: 4px; padding: 5px 11px; border-radius: 9px; font-size: 11px; font-weight: 700; color: var(--blue-700); background: var(--blue-50); border: 1px solid var(--blue-100); transition: background .15s; }
+.add__btn:hover:not(:disabled) { background: var(--blue-100); }
+.add__btn:disabled { opacity: .5; cursor: not-allowed; }
+.add__list { list-style: none; margin: 8px 0 0; padding: 0 2px 0 0; max-height: 108px; display: flex; flex-direction: column; gap: 5px; }
+.arow { display: flex; align-items: stretch; background: #fff; border: 1px solid var(--slate-100); border-radius: 10px; overflow: hidden; }
+.arow:hover { border-color: #bfdbfe; }
+.arow__main { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; padding: 7px 4px 7px 10px; text-align: left; font-size: 12px; line-height: 1.5; }
+.arow__scope { flex: none; max-width: 46%; overflow: hidden; text-overflow: ellipsis; padding: 0 8px; border-radius: 6px; font-size: 11px; font-weight: 700; background: var(--blue-100); color: var(--blue-700); white-space: nowrap; }
+.arow__scope--all { background: var(--slate-100); color: var(--slate-600); }
+.arow__text { flex: 1; min-width: 0; color: var(--slate-600); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.arow__amt { flex: none; font-weight: 700; color: #15803d; }
+.arow__del { flex: none; width: 28px; display: grid; place-items: center; color: var(--slate-400); }
+.arow__del:hover { background: var(--red-50); color: #dc2626; }
 
 .summary { margin: 0; padding-top: 8px; display: flex; flex-direction: column; gap: 4px; }
 .summary div { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; line-height: 1.6; }
 .summary dt { color: var(--slate-500); }
 .summary dd { margin: 0; font-weight: 600; color: var(--slate-800); }
-.summary .minus { color: #dc2626; }
+.summary .plus { color: #15803d; }
 .summary .total { border-top: 1px dashed var(--slate-200); padding-top: 6px; margin-top: 2px; }
 .summary .total dt { font-size: 14px; font-weight: 700; color: var(--slate-900); }
 .summary .total dd { font-size: 20px; font-weight: 700; color: var(--blue-600); }
-.actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding-top: 12px; }
+.actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 8px; padding-top: 12px; }
 </style>

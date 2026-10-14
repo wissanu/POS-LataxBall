@@ -6,29 +6,27 @@ import { useSettingsStore } from './settings'
 import { toNumber, round2 } from '@/utils/format'
 
 let lineSeq = 0
-let discountSeq = 0
+let additionSeq = 0
 
 /**
- * ตะกร้ารายการรับซื้อ (ฝั่งขวา)
- *  - 1 บรรทัด = การชั่ง 1 ครั้ง (สินค้าเดิม/ภาชนะเดิมกดซ้ำได้ จะได้บรรทัดใหม่ทุกครั้ง)
- *  - น้ำหนักสุทธิ = น้ำหนักรวม − น้ำหนักภาชนะ (อ่านจากการตั้งค่า settings เสมอ จึงแก้ในบรรทัดไม่ได้)
- *  - ยอดบรรทัด = น้ำหนักสุทธิ × ราคา(บาท/กก.)
+ * ตะกร้ารายการรับซื้อ (แผงขวา — แสดงผลเป็นข้อความอย่างเดียว; กรอก/แก้ไขที่หน้าต่างเกรด GradeEntryModal)
+ *  - 1 บรรทัด = การชั่ง 1 ครั้ง · แถวของเกรดเดียวกันและภาชนะเดียวกันอยู่ติดกันเสมอ
+ *  - น้ำหนักสุทธิ = น้ำหนักที่ชั่งได้ (น้ำหนักสินค้า) − น้ำหนักภาชนะ (อ่านจากการตั้งค่า settings เสมอ)
+ *  - ยอดบรรทัด = น้ำหนักสุทธิ × ราคา (บาท/กก.)
  *
- *  ส่วนลด: ลูกค้า 1 คนมีได้หลายรายการ แต่ละรายการคือ
- *    scope = 'all' (ทุกตะกร้า) | uid ของบรรทัด (เฉพาะตะกร้านั้น)
- *    mode  = 'perKg' (ลดบาท/กก. × น้ำหนักสุทธิ) | 'amount' (ลดเป็นเงินคงที่)
- *  ส่วนลดเฉพาะบรรทัดรวมกันแล้วไม่เกินยอดบรรทัดนั้น · ส่วนลดทุกตะกร้าไม่เกินยอดที่เหลือ
+ *  เพิ่มราคา (ร้านรับซื้อ = จ่ายลูกค้าเพิ่ม ไม่ใช่ส่วนลด): มีได้หลายรายการต่อลูกค้า 1 คน
+ *    scope = 'all' (ทุกตะกร้า) | uid ของบรรทัด (เฉพาะบรรทัดนั้น)
+ *    mode  = 'perKg' (เพิ่มบาท/กก. × น้ำหนักสุทธิ) | 'amount' (เพิ่มเป็นเงินคงที่)
+ *  ยอดสุทธิ = ยอดรวม + เพิ่มราคา
  */
 export const useCartStore = defineStore('cart', () => {
   const members = useMemberStore()
   const settings = useSettingsStore()
 
   const lines = ref([]) // { uid, productId, name, pricePerKg, containerId, containerLabel, gross }
-  const lastAddedUid = ref(null)
-
   const customerType = ref('general') // 'member' | 'general'
   const memberId = ref(null)
-  const discounts = ref([]) // { id, scope, mode, value }
+  const additions = ref([]) // { id, scope, mode, value }
 
   // ---- customer ----
   const member = computed(() => members.items.find((m) => m.id === memberId.value) || null)
@@ -46,65 +44,55 @@ export const useCartStore = defineStore('cart', () => {
   const totalNet = computed(() => round2(lines.value.reduce((s, l) => s + netOf(l), 0)))
   const subtotal = computed(() => round2(lines.value.reduce((s, l) => s + amountOf(l), 0)))
 
-  // ---- discounts ----
-  const rawAmountOf = (d) => {
-    const v = toNumber(d.value)
-    if (d.scope === 'all') return round2(d.mode === 'perKg' ? totalNet.value * v : v)
-    const line = lines.value.find((l) => l.uid === d.scope)
-    return line ? round2(d.mode === 'perKg' ? netOf(line) * v : v) : 0
+  // ---- เพิ่มราคา ----
+  const rawAmountOf = (a) => {
+    const v = toNumber(a.value)
+    if (a.scope === 'all') return round2(a.mode === 'perKg' ? totalNet.value * v : v)
+    const line = lines.value.find((l) => l.uid === a.scope)
+    return line ? round2(a.mode === 'perKg' ? netOf(line) * v : v) : 0
   }
-  const discountRows = computed(() =>
-    discounts.value.map((d) => ({ ...d, raw: rawAmountOf(d), line: d.scope === 'all' ? null : lines.value.find((l) => l.uid === d.scope) || null })),
+  const additionRows = computed(() =>
+    additions.value.map((a) => ({ ...a, amount: rawAmountOf(a), line: a.scope === 'all' ? null : lines.value.find((l) => l.uid === a.scope) || null })),
   )
+  const lineAdditionOf = (uid) => round2(additionRows.value.filter((r) => r.scope === uid).reduce((s, r) => s + r.amount, 0))
+  const additionAmount = computed(() => round2(additionRows.value.reduce((s, r) => s + r.amount, 0)))
+  const total = computed(() => round2(subtotal.value + additionAmount.value))
 
-  // effective amounts after clamping
-  const clampInfo = computed(() => {
-    const perLineRaw = new Map()
-    for (const r of discountRows.value) if (r.scope !== 'all') perLineRaw.set(r.scope, round2((perLineRaw.get(r.scope) || 0) + r.raw))
-    const perLine = new Map()
-    let clamped = false
-    for (const [uid, raw] of perLineRaw) {
-      const line = lines.value.find((l) => l.uid === uid)
-      const eff = Math.min(raw, line ? amountOf(line) : 0)
-      if (eff < raw) clamped = true
-      perLine.set(uid, eff)
-    }
-    const lineTotal = round2([...perLine.values()].reduce((s, v) => s + v, 0))
-    const allRaw = round2(discountRows.value.filter((r) => r.scope === 'all').reduce((s, r) => s + r.raw, 0))
-    const allEff = Math.min(allRaw, Math.max(0, round2(subtotal.value - lineTotal)))
-    if (allEff < allRaw) clamped = true
-    return { perLine, lineTotal, allEff, clamped }
-  })
-  const lineDiscountOf = (uid) => clampInfo.value.perLine.get(uid) || 0
-  const discountAmount = computed(() => round2(clampInfo.value.lineTotal + clampInfo.value.allEff))
-  const discountClamped = computed(() => clampInfo.value.clamped)
-  const total = computed(() => round2(subtotal.value - discountAmount.value))
-
-  function addDiscount({ scope, mode, value }) {
-    const id = ++discountSeq
-    discounts.value.push({ id, scope, mode, value: String(value) })
+  function addAddition({ scope, mode, value }) {
+    const id = ++additionSeq
+    additions.value.push({ id, scope, mode, value: String(value) })
     return id
   }
-  function updateDiscount(id, patch) {
-    const d = discounts.value.find((x) => x.id === id)
-    if (d) Object.assign(d, patch, patch.value != null ? { value: String(patch.value) } : {})
+  function updateAddition(id, patch) {
+    const a = additions.value.find((x) => x.id === id)
+    if (a) Object.assign(a, patch, patch.value != null ? { value: String(patch.value) } : {})
   }
-  function removeDiscount(id) { discounts.value = discounts.value.filter((d) => d.id !== id) }
+  function removeAddition(id) { additions.value = additions.value.filter((a) => a.id !== id) }
 
   // ---- lines ----
-  function addLine(product, container) {
-    const uid = ++lineSeq
-    lines.value.push({
-      uid,
-      productId: product.id,
-      name: product.name,
-      pricePerKg: Number(product.price),
-      containerId: container.id,
-      containerLabel: container.short,
-      gross: '',
-    })
-    lastAddedUid.value = uid
-    return uid
+  const linesOf = (productId, containerId) => lines.value.filter((l) => l.productId === productId && l.containerId === containerId)
+
+  /**
+   * บันทึกแถวของ (เกรด, ภาชนะ) หนึ่งกลุ่มจากหน้าต่างเกรด: rows = [{ uid?, gross }]
+   *  - แถวที่มี uid = แก้น้ำหนักของบรรทัดเดิม (uid คงเดิม เพื่อให้ เพิ่มราคา ที่ผูกกับบรรทัดนั้นไม่หลุด)
+   *  - แถวที่ไม่มี uid = บรรทัดใหม่ · บรรทัดเดิมที่ไม่อยู่ใน rows = ถูกลบ (พร้อมเพิ่มราคาของบรรทัดนั้น)
+   *  - บรรทัดใหม่แทรกต่อท้ายกลุ่มเดิม (ไม่เจอกลุ่ม: ต่อท้ายเกรดเดียวกัน / ท้ายสุด) จึงเรียงเป็นกลุ่มติดกันเสมอ
+   */
+  function setGroup(product, container, rows) {
+    const keep = new Set(rows.filter((r) => r.uid).map((r) => r.uid))
+    for (const l of linesOf(product.id, container.id)) if (!keep.has(l.uid)) removeLine(l.uid)
+    for (const r of rows) {
+      if (r.uid) { setGross(r.uid, String(r.gross)); continue }
+      let at = -1
+      lines.value.forEach((l, i) => { if (l.productId === product.id && l.containerId === container.id) at = i })
+      if (at < 0) lines.value.forEach((l, i) => { if (l.productId === product.id) at = i })
+      const line = {
+        uid: ++lineSeq, productId: product.id, name: product.name, pricePerKg: Number(product.price),
+        containerId: container.id, containerLabel: container.short, gross: String(r.gross),
+      }
+      if (at < 0) lines.value.push(line)
+      else lines.value.splice(at + 1, 0, line)
+    }
   }
   function setGross(uid, value) {
     const l = lines.value.find((x) => x.uid === uid)
@@ -112,12 +100,11 @@ export const useCartStore = defineStore('cart', () => {
   }
   function removeLine(uid) {
     lines.value = lines.value.filter((l) => l.uid !== uid)
-    discounts.value = discounts.value.filter((d) => d.scope !== uid) // a basket's own discounts go with it
+    additions.value = additions.value.filter((a) => a.scope !== uid) // เพิ่มราคาของบรรทัดนั้นหายไปด้วย
   }
   function clear() {
     lines.value = []
-    discounts.value = []
-    lastAddedUid.value = null
+    additions.value = []
   }
   function reset() {
     clear()
@@ -125,34 +112,27 @@ export const useCartStore = defineStore('cart', () => {
     memberId.value = null
   }
 
-  /** status: 'pending' | 'draft' */
+  /** status: 'pending' (Bill & Print) | 'draft' */
   async function submit(status = 'pending') {
     const order = await orderService.create({
       status,
       customer: customer.value,
-      items: lines.value.map((l) => ({
-        productId: l.productId, name: l.name, containerId: l.containerId, containerLabel: l.containerLabel,
-        pricePerKg: l.pricePerKg, gross: toNumber(l.gross), tare: tareOf(l),
-        netWeight: round2(netOf(l)), amount: amountOf(l),
-      })),
-      totalNetWeight: totalNet.value,
-      subtotal: subtotal.value,
-      discounts: discountRows.value.map((r) => ({
-        scope: r.scope === 'all' ? 'all' : 'line',
-        lineIndex: r.scope === 'all' ? null : lines.value.findIndex((l) => l.uid === r.scope),
-        mode: r.mode, value: toNumber(r.value), amount: r.raw,
-      })),
-      discountTotal: discountAmount.value,
-      total: total.value,
+      items: lines.value.map((l) => ({ productId: l.productId, containerId: l.containerId, gross: toNumber(l.gross) })),
+      additions: additionRows.value
+        .map((r) => ({
+          scope: r.scope === 'all' ? 'all' : 'line',
+          lineIndex: r.scope === 'all' ? null : lines.value.findIndex((l) => l.uid === r.scope),
+          mode: r.mode, value: toNumber(r.value),
+        })),
     })
     reset()
     return order
   }
 
   return {
-    lines, lastAddedUid, customerType, memberId, member, customer, discounts, discountRows,
-    tareOf, netOf, amountOf, totalNet, subtotal, lineDiscountOf, discountAmount, discountClamped, total,
-    addDiscount, updateDiscount, removeDiscount,
-    addLine, setGross, removeLine, clear, reset, submit,
+    lines, customerType, memberId, member, customer, additions, additionRows,
+    tareOf, netOf, amountOf, totalNet, subtotal, lineAdditionOf, additionAmount, total, linesOf,
+    addAddition, updateAddition, removeAddition,
+    setGroup, setGross, removeLine, clear, reset, submit,
   }
 })

@@ -3,13 +3,14 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import BaseButton from '@/components/BaseButton.vue'
 import BaseModal from '@/components/BaseModal.vue'
-import OrderCard from '@/components/OrderCard.vue'
+import OrdersTable from '@/components/OrdersTable.vue'
 import Pagination from '@/components/Pagination.vue'
+import ReceiptModal from '@/components/ReceiptModal.vue'
 import { useAuthStore } from '@/stores/auth'
-import { PAGE_SIZE, useOrderStore } from '@/stores/orders'
+import { PAGE_SIZE, RANGES, useOrderStore } from '@/stores/orders'
 import { useToast } from '@/composables/useToast'
 import { getErrorMessage } from '@/services/http'
-import { formatThaiStamp } from '@/utils/dates'
+import { formatThaiDate, formatThaiStamp } from '@/utils/dates'
 
 const orders = useOrderStore()
 const auth = useAuthStore()
@@ -38,9 +39,12 @@ onBeforeUnmount(() => {
 // ไม่แสดง error ในพื้นที่รายการ — แจ้งด้วย toast ครั้งเดียวเมื่อมีปัญหา
 watch(() => orders.error, (m) => m && toast.error(m))
 
-// ---- toggle: เฉพาะวันนี้ <-> ทุกวัน (ระหว่างค้นหาจะค้นทุกวันเสมอ จึงล็อกไว้) ----
-const allDays = computed(() => orders.effectiveScope === 'all')
-const toggleScope = () => { if (!orders.hasSearch) orders.setScope(allDays.value ? 'today' : 'all') }
+// ---- ช่วงเวลา: วันนี้ / 7 วัน / 30 วัน (ไม่มี "ทุกวัน" แบบไม่จำกัด · ระหว่างค้นหาจะค้นข้ามทุกวันเอง จึงล็อกไว้) ----
+const windowText = computed(() => {
+  const { windowFrom: f, windowTo: t } = orders
+  if (!f || !t) return ''
+  return f === t ? formatThaiDate(f) : `${formatThaiDate(f)} – ${formatThaiDate(t)}`
+})
 
 // ---- ป้ายตัวกรองที่กำลังค้นหา ----
 const tags = computed(() => {
@@ -89,8 +93,10 @@ async function setStatus(order, status, label) {
   try {
     await orders.setStatus(order.id, status)
     toast.success(`Order #${order.no} ${label ?? (status === 'complete' ? 'accepted' : 'rejected')}`)
+    return true
   } catch (e) {
     toast.error(getErrorMessage(e, 'Could not update the order.'))
+    return false
   } finally {
     busyId.value = null
   }
@@ -103,10 +109,28 @@ async function confirmCancel() {
   if (o) await setStatus(o, 'rejected', 'cancelled')
 }
 
+// ---- ใบเสร็จ: กด ✓ → พรีวิว → ปริ๊น → (ยืนยันใบ) → ถามว่าจะจ่ายเงินไหม ----
+const receiptOrder = ref(null)
+const receiptOpen = ref(false)
+const payOpen = ref(false)
+function openReceipt(order) { receiptOrder.value = order; receiptOpen.value = true }
+async function afterReceipt(order) {
+  // ปริ๊นแล้ว (หรือเลือกยืนยันโดยไม่พิมพ์) → ยืนยันใบ ถ้าสำเร็จจึงถามเรื่องจ่ายเงิน
+  if (await setStatus(order, 'complete')) {
+    receiptOpen.value = false
+    payOpen.value = true
+  }
+}
+// ตอบ "ใช่" หรือ "ไม่ใช่" = ปิดทุกหน้าต่างไว้ก่อน (ขั้นตอนจ่ายเงินจะต่อในภายหลัง)
+function answerPay() {
+  payOpen.value = false
+  receiptOpen.value = false
+}
+
 const emptyText = computed(() =>
   orders.hasSearch ? 'ไม่พบใบรับซื้อที่ตรงกับการค้นหา'
   : orders.statusFilter !== 'all' ? 'ไม่มีรายการในสถานะนี้'
-  : allDays.value ? 'ยังไม่มีรายการรับซื้อ' : 'ยังไม่ได้รับรายการของวันนี้',
+  : orders.range === 'today' ? 'ยังไม่ได้รับรายการของวันนี้' : 'ยังไม่มีรายการรับซื้อในช่วงนี้',
 )
 </script>
 
@@ -115,18 +139,16 @@ const emptyText = computed(() =>
     <header class="head">
       <div>
         <h1>รายการรับซื้อสินค้า</h1>
-        <p>รับข้อมูล รายการรับซื้อสินค้า แบบต่อเนื่อง</p>
+        <p>รับข้อมูล รายการรับซื้อสินค้า แบบต่อเนื่อง<template v-if="!orders.hasSearch && windowText"> · แสดง {{ windowText }}</template></p>
       </div>
       <div class="tools">
-        <!-- 5) toggle: เฉพาะวันนี้ <-> ทุกรายการ -->
-        <button
-          type="button" class="scope" role="switch" :aria-checked="allDays" :disabled="orders.hasSearch"
-          :title="orders.hasSearch ? 'กำลังค้นหา: ค้นข้ามทุกวัน' : allDays ? 'กดเพื่อดูเฉพาะวันนี้' : 'กดเพื่อดูทุกรายการ (หาใบย้อนหลัง)'" @click="toggleScope"
-        >
-          <span class="scope__txt" :class="{ on: !allDays }">วันนี้</span>
-          <span class="scope__track" :class="{ all: allDays }" aria-hidden="true"><i /></span>
-          <span class="scope__txt" :class="{ on: allDays }">ทุกวัน</span>
-        </button>
+        <!-- ช่วงเวลา: วันนี้ / 7 วัน / 30 วัน — อยากดูย้อนหลังกว่านั้นให้ใช้ช่องค้นหาด้านบน (เลขที่ใบ / ลูกค้า / ช่วงวันเวลา) -->
+        <div class="range" role="radiogroup" aria-label="ช่วงเวลา" :title="orders.hasSearch ? 'กำลังค้นหา: ค้นข้ามทุกวัน' : 'อยากดูย้อนหลังกว่านี้ ให้ค้นหาที่ช่องค้นหาด้านบน'">
+          <button
+            v-for="r in RANGES" :key="r.v" type="button" role="radio" class="range__btn" :class="{ on: !orders.hasSearch && orders.range === r.v }"
+            :aria-checked="!orders.hasSearch && orders.range === r.v" :disabled="orders.hasSearch" @click="orders.setRange(r.v)"
+          >{{ r.label }}</button>
+        </div>
         <div class="filter">
           <button type="button" class="filter__btn" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><AppIcon name="filter" :size="14" /> Filter</button>
           <ul v-if="menuOpen" class="filter__menu" role="menu">
@@ -150,21 +172,29 @@ const emptyText = computed(() =>
       <span v-for="c in orders.queue" :key="c.id" class="chip" :class="`chip--${c.status}`"><AppIcon :name="chipIcon[c.status]" :size="12" /> #{{ c.no }}</span>
     </div>
 
-    <!-- 2) 3 แถว x 3 หลัก ต่อหน้า -->
+    <!-- ตาราง: 1 ใบ = 1 แถว สูงเท่ากัน · คลิกแถวเพื่อดูรายละเอียดรายการ -->
     <div class="scroll">
       <p v-if="orders.loading" class="state">Loading orders…</p>
-      <p v-else-if="!orders.list.length" class="state">{{ emptyText }}</p>
-      <div v-else class="grid" :aria-busy="orders.loading">
-        <OrderCard
-          v-for="o in orders.list" :key="o.id" :order="o" :busy="busyId === o.id" :can-cancel="canCancel"
-          @accept="setStatus(o, 'complete')" @reject="setStatus(o, 'rejected')" @cancel="cancelTarget = o"
-        />
-      </div>
+      <p v-else-if="!orders.list.length" class="state">{{ emptyText }}<template v-if="!orders.hasSearch"><br /><small>ต้องการใบย้อนหลัง? ค้นหาเลขที่ใบ ลูกค้า หรือช่วงวันเวลาที่ช่องค้นหาด้านบน</small></template></p>
+      <OrdersTable
+        v-else :orders="orders.list" :busy-id="busyId" :can-cancel="canCancel" :aria-busy="orders.loading"
+        @accept="openReceipt" @reprint="openReceipt" @reject="setStatus($event, 'rejected')" @cancel="cancelTarget = $event"
+      />
     </div>
 
     <footer v-if="orders.total > 0" class="foot">
       <Pagination :page="orders.page" :total-pages="orders.totalPages" :total="orders.total" :page-size="PAGE_SIZE" :disabled="orders.loading" @update:page="orders.goPage" />
     </footer>
+
+    <ReceiptModal v-model="receiptOpen" :order="receiptOrder" @printed="afterReceipt" @skip="afterReceipt" />
+
+    <BaseModal v-model="payOpen" title="ต้องการจ่ายเงินหรือไม่ ?" width="400px">
+      <p class="confirm">ใบรับซื้อ <b>#{{ receiptOrder?.no }}</b> ยืนยันเรียบร้อยแล้ว</p>
+      <template #footer>
+        <BaseButton variant="soft" @click="answerPay">ไม่ใช่</BaseButton>
+        <BaseButton variant="success" @click="answerPay">ใช่</BaseButton>
+      </template>
+    </BaseModal>
 
     <BaseModal v-model="cancelOpen" title="ยกเลิกใบรับซื้อที่ยืนยันแล้ว" width="420px">
       <p class="confirm">ต้องการยกเลิก <b>#{{ cancelTarget?.no }}</b> ใช่ไหม? ใบที่ยกเลิกแล้วจะไม่นับในรายงานยอดขาย และกลับมายืนยันใหม่ไม่ได้</p>
@@ -183,14 +213,11 @@ h1 { font-size: 24px; font-weight: 800; letter-spacing: -.4px; color: var(--slat
 .head p { font-size: 12px; color: var(--slate-500); }
 .tools { display: flex; align-items: center; gap: 10px; }
 
-.scope { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 12px; border: 1px solid var(--slate-200); border-radius: var(--radius-md); background: #fff; font-size: 12px; font-weight: 600; color: var(--slate-400); }
-.scope:disabled { cursor: not-allowed; opacity: .75; }
-.scope__txt.on { color: var(--blue-700); font-weight: 700; }
-.scope__track { position: relative; width: 34px; height: 20px; border-radius: 9999px; background: var(--slate-300); transition: background .2s; }
-.scope__track i { position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0, 0, 0, .25); transition: transform .2s; }
-.scope__track.all { background: var(--blue-600); }
-.scope__track.all i { transform: translateX(14px); }
-@media (prefers-reduced-motion: reduce) { .scope__track, .scope__track i { transition: none; } }
+.range { display: inline-flex; padding: 3px; gap: 2px; height: 36px; border: 1px solid var(--slate-200); border-radius: var(--radius-md); background: #fff; }
+.range__btn { padding: 0 12px; border-radius: 9px; font-size: 12px; font-weight: 600; color: var(--slate-500); transition: background .15s, color .15s; }
+.range__btn:hover:not(.on):not(:disabled) { background: var(--slate-50); color: var(--slate-700); }
+.range__btn.on { background: var(--blue-50); color: var(--blue-700); font-weight: 700; }
+.range__btn:disabled { cursor: not-allowed; opacity: .6; }
 
 .filter { position: relative; }
 .filter__btn { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 13px; border: 1px solid var(--slate-200); border-radius: var(--radius-md); background: #fff; font-size: 12px; font-weight: 600; color: var(--slate-700); }
@@ -215,16 +242,14 @@ h1 { font-size: 24px; font-weight: 800; letter-spacing: -.4px; color: var(--slat
 .chip--rejected { background: #fdf2f8; color: #be185d; border-color: #f9a8d4; }
 .chip--pending { background: var(--amber-50); color: var(--amber-700); border-color: #fcd34d; }
 
-.scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 2px 8px; }
-.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
-.state { text-align: center; color: var(--slate-500); font-size: 13px; padding: 64px 0; }
+.scroll { flex: 1; min-height: 0; overflow: auto; padding: 2px 2px 8px; }
+.state { text-align: center; color: var(--slate-500); font-size: 13px; line-height: 1.8; padding: 64px 0; }
+.state small { font-size: 12px; color: var(--slate-400); }
 .foot { flex: none; margin-top: 8px; padding-top: 12px; border-top: 1px solid rgba(226, 232, 240, .8); }
 .confirm { font-size: 13px; line-height: 1.7; color: var(--slate-700); }
-@media (max-width: 1100px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 700px) {
   .orders { padding: 16px; }
   .head { flex-wrap: wrap; }
   h1 { font-size: 21px; }
-  .grid { grid-template-columns: minmax(0, 1fr); }
 }
 </style>

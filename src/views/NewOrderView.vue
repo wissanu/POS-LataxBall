@@ -7,7 +7,7 @@ import OrderPanel from '@/components/OrderPanel.vue'
 import BaseButton from '@/components/BaseButton.vue'
 import BaseModal from '@/components/BaseModal.vue'
 import PriceBoardModal from '@/components/PriceBoardModal.vue'
-import ContainerPickerModal from '@/components/ContainerPickerModal.vue'
+import GradeEntryModal from '@/components/GradeEntryModal.vue'
 import ContainerSettingsModal from '@/components/ContainerSettingsModal.vue'
 import LumpImage from '@/components/LumpImage.vue'
 import { usePriceBoardStore } from '@/stores/priceBoard'
@@ -131,11 +131,6 @@ function onCard(product) {
   selected.value = product
   pickOpen.value = true
 }
-// each pick = a NEW line on the right (same product / same container can be added again and again)
-function onPick(container) {
-  cart.addLine(selected.value, container)
-  toast.success(`เพิ่ม ${selected.value.name} (${container.short})`)
-}
 function openDrafts() {
   orders.statusFilter = 'draft'
   router.push({ name: 'orders' })
@@ -227,7 +222,7 @@ function openDrafts() {
 
   <PriceBoardModal v-model="priceOpen" />
   <ContainerSettingsModal v-model="settingsOpen" />
-  <ContainerPickerModal v-model="pickOpen" :product="selected" @pick="onPick" />
+  <GradeEntryModal v-model="pickOpen" :product="selected" />
 
   <BaseModal v-model="confirmOpen" title="Discard รายการที่เลือก" width="420px">
     <p class="confirm">ต้องการ discard <b>{{ picked.size }}</b> รายการออกจากราคาของวันนี้ใช่ไหม? รายการที่ discard จะไม่แสดงและใช้รับซื้อในวันนี้ไม่ได้ (กลับมาได้โดยกรอกราคาใหม่ด้วยปุ่ม New)</p>
