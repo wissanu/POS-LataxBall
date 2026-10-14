@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import AppIcon from './AppIcon.vue'
 import BaseButton from './BaseButton.vue'
 import AdditionModal from './AdditionModal.vue'
@@ -7,12 +7,14 @@ import { useCartStore } from '@/stores/cart'
 import { useMemberStore } from '@/stores/members'
 import { useToast } from '@/composables/useToast'
 import { getErrorMessage } from '@/services/http'
-import { formatMoney, formatNumber, formatKg, toNumber } from '@/utils/format'
+import { formatMoney, formatNumber, formatKg, sanitizeDecimal, toNumber } from '@/utils/format'
 
 /**
  * แผงรายการปัจจุบัน (ขวา) — แสดงผลเป็นข้อความทั้งหมด
  *   ลูกค้า (เลือกที่หน้าต่างเกรด) · ตารางรายการ · เพิ่มราคา · สรุปยอด · ปุ่ม Draft / Bill & Print
- *   กรอก/แก้ไข/ลบแถวน้ำหนัก: กดการ์ดเกรดในหน้า New Order (หน้าต่างเกรดจะแสดงแถวเดิมให้แก้ไข)
+ *   กรอก/ลบแถว: กดการ์ดเกรดในหน้า New Order (หน้าต่างเกรดจะแสดงแถวเดิมให้แก้ไข)
+ *   แก้น้ำหนักสินค้าเร็วๆ: ปุ่ม "แก้ไข" ข้าง "ล้างทั้งหมด" → ช่องน้ำหนักทุกแถวกลายเป็นช่องกรอก · กด Enter หรือกดปุ่มอีกครั้ง ("ยืนยัน") = บันทึกและคำนวณยอดใหม่ · Esc = ยกเลิก
+ *   ย่อแผง: ซ่อนแผงทั้งหมด เหลือปุ่มลอย (ไอคอนรายการ) ที่ขอบขวา — กดอีกครั้งเพื่อเปิดกลับ
  */
 const cart = useCartStore()
 const members = useMemberStore()
@@ -22,6 +24,35 @@ const collapsed = ref(false)
 const busy = ref(false)
 const additionOpen = ref(false)
 const editingAddition = ref(null)
+
+// ---- แก้น้ำหนักสินค้าในแผง (ทุกแถวพร้อมกัน) ----
+const editing = ref(false)
+const drafts = reactive({}) // uid -> น้ำหนักที่กำลังพิมพ์ (ยังไม่เข้าตะกร้าจนกว่าจะยืนยัน)
+function startEdit() {
+  if (!cart.lines.length) return
+  for (const k of Object.keys(drafts)) delete drafts[k]
+  cart.lines.forEach((l) => { drafts[l.uid] = String(l.gross ?? '') })
+  editing.value = true
+  nextTick(() => document.getElementById(`pw-${cart.lines[0].uid}`)?.select())
+}
+function commitEdit() {
+  const i = cart.lines.findIndex((l) => toNumber(drafts[l.uid]) <= cart.tareOf(l))
+  if (i >= 0) {
+    toast.error(`ลำดับ ${i + 1}: น้ำหนักสินค้าต้องมากกว่าน้ำหนักภาชนะ (${formatKg(cart.tareOf(cart.lines[i]))})`)
+    document.getElementById(`pw-${cart.lines[i].uid}`)?.focus()
+    return
+  }
+  cart.lines.forEach((l) => { if (String(drafts[l.uid]) !== String(l.gross)) cart.setGross(l.uid, String(drafts[l.uid])) }) // ยอดรวมทั้งหมดคำนวณใหม่จาก store เอง
+  editing.value = false
+}
+const cancelEdit = () => { editing.value = false }
+const toggleEdit = () => (editing.value ? commitEdit() : startEdit())
+function onDraft(e, uid) {
+  const v = sanitizeDecimal(e.target.value)
+  if (v !== e.target.value) e.target.value = v
+  drafts[uid] = v
+}
+watch(() => cart.lines.length, (n) => { if (!n) editing.value = false })
 
 onMounted(() => members.load())
 
@@ -70,9 +101,9 @@ async function send(status, message) {
 </script>
 
 <template>
-  <aside class="panel glass" :class="{ 'panel--collapsed': collapsed }" aria-label="รายการปัจจุบัน">
+  <aside v-if="!collapsed" class="panel glass" aria-label="รายการปัจจุบัน">
     <header class="head">
-      <div v-if="!collapsed" class="who">
+      <div class="who">
         <span class="badge" :class="{ 'badge--member': badge }">
           <template v-if="badge">{{ badge }}</template>
           <AppIcon v-else name="user" :size="18" />
@@ -82,12 +113,11 @@ async function send(status, message) {
           <p>{{ cart.lines.length ? `${cart.lines.length} แถว · น้ำหนักสุทธิ ${formatKg(cart.totalNet)}` : 'ยังไม่มีรายการ' }}</p>
         </div>
       </div>
-      <button class="toggle" type="button" :aria-expanded="!collapsed" :aria-label="collapsed ? 'ขยายแผงรายการ' : 'ย่อแผงรายการ'" @click="collapsed = !collapsed">
-        <AppIcon :name="collapsed ? 'chevron-left' : 'chevron-right'" />
+      <button class="toggle" type="button" aria-expanded="true" aria-label="ซ่อนแผงรายการ" title="ซ่อนแผงรายการ" @click="collapsed = true">
+        <AppIcon name="chevron-right" />
       </button>
     </header>
 
-    <template v-if="!collapsed">
       <!-- ลูกค้า: ข้อความอย่างเดียว (เลือกที่หน้าต่างเกรด) -->
       <section class="customer" aria-label="ลูกค้า">
         <span class="customer__tag">{{ customerText.tag }}</span>
@@ -96,7 +126,10 @@ async function send(status, message) {
 
       <div class="list-head">
         <h3>รายการสินค้า <span>{{ cart.lines.length }}</span></h3>
-        <button v-if="cart.lines.length" type="button" class="clear" @click="cart.clear()">ล้างทั้งหมด</button>
+        <button v-if="cart.lines.length" type="button" class="edit" :class="{ on: editing }" :aria-pressed="editing" :title="editing ? 'ยืนยันการแก้ไข (Enter)' : 'แก้ไขน้ำหนักสินค้า'" @click="toggleEdit">
+          <AppIcon :name="editing ? 'check' : 'edit'" :size="13" /> {{ editing ? 'ยืนยัน' : 'แก้ไข' }}
+        </button>
+        <button v-if="cart.lines.length" type="button" class="clear" :disabled="editing" @click="cart.clear()">ล้างทั้งหมด</button>
       </div>
 
       <div class="tbl scroll-y">
@@ -111,7 +144,13 @@ async function send(status, message) {
               <tr v-else>
                 <td class="c">{{ row.no }}</td>
                 <td>{{ formatNumber(cart.tareOf(row.l)) }}</td>
-                <td>{{ formatNumber(toNumber(row.l.gross)) }}</td>
+                <td :class="{ 'is-edit': editing }">
+                  <input
+                    v-if="editing" :id="`pw-${row.l.uid}`" class="winput" :value="drafts[row.l.uid]" inputmode="decimal" maxlength="9" autocomplete="off"
+                    :aria-label="`น้ำหนักสินค้า ลำดับ ${row.no}`" @input="onDraft($event, row.l.uid)" @keydown.enter.prevent="commitEdit" @keydown.esc.prevent="cancelEdit"
+                  />
+                  <template v-else>{{ formatNumber(toNumber(row.l.gross)) }}</template>
+                </td>
                 <td>{{ formatNumber(row.l.pricePerKg) }}</td>
                 <td class="amt">
                   {{ formatNumber(cart.amountOf(row.l)) }}
@@ -149,20 +188,25 @@ async function send(status, message) {
       </dl>
 
       <div class="actions">
-        <BaseButton variant="soft" :disabled="!cart.lines.length" @click="send('draft', 'บันทึกฉบับร่างแล้ว')"><AppIcon name="file" :size="14" /> Draft</BaseButton>
-        <BaseButton variant="success" :loading="busy" :disabled="!cart.lines.length" @click="send('pending', 'พิมพ์บิลแล้ว')"><AppIcon name="printer" /> Bill &amp; Print</BaseButton>
+        <BaseButton variant="soft" :disabled="!cart.lines.length || editing" @click="send('draft', 'บันทึกฉบับร่างแล้ว')"><AppIcon name="file" :size="14" /> Draft</BaseButton>
+        <BaseButton variant="success" :loading="busy" :disabled="!cart.lines.length || editing || busy" @click="send('pending', 'พิมพ์บิลแล้ว')"><AppIcon name="printer" /> Bill &amp; Print</BaseButton>
       </div>
-    </template>
 
     <AdditionModal v-model="additionOpen" :edit-id="editingAddition" />
   </aside>
+
+  <!-- ย่อแผง: ปุ่มลอยติดขอบขวา (fixed) ไอคอนรายการ + จำนวนแถว — กดเพื่อเปิดแผงกลับ -->
+  <Teleport to="body">
+    <button v-if="collapsed" type="button" class="fab" aria-label="แสดงแผงรายการ" title="แสดงรายการ" @click="collapsed = false">
+      <AppIcon name="list" :size="22" />
+      <i v-if="cart.lines.length" class="fab__n">{{ cart.lines.length }}</i>
+    </button>
+  </Teleport>
 </template>
 
 <style scoped>
-.panel { width: 384px; flex: none; padding: 17px; display: flex; flex-direction: column; background: var(--glass-strong); transition: width .2s; min-height: 0; }
-.panel--collapsed { width: 62px; padding: 17px 12px; }
+.panel { width: 384px; flex: none; padding: 17px; display: flex; flex-direction: column; background: var(--glass-strong); min-height: 0; }
 .head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 13px; border-bottom: 1px solid rgba(226, 232, 240, .6); }
-.panel--collapsed .head { border: 0; justify-content: center; }
 .who { display: flex; gap: 10px; align-items: center; min-width: 0; }
 .badge { width: 36px; height: 36px; flex: none; border-radius: var(--radius-md); background: var(--slate-100); color: var(--slate-500); display: grid; place-items: center; font-weight: 700; font-size: 12px; }
 .badge--member { background: var(--blue-100); color: var(--blue-700); }
@@ -180,7 +224,17 @@ h2 { font-size: 13px; font-weight: 700; color: var(--slate-900); display: flex; 
 .list-head h3 { font-size: 12px; font-weight: 700; color: var(--slate-700); line-height: 1.5; margin-right: auto; }
 .list-head h3 span, .add__head h3 span { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: var(--blue-100); color: var(--blue-700); font-size: 11px; text-align: center; }
 .clear { font-size: 11px; font-weight: 600; color: var(--slate-500); }
-.clear:hover { color: #dc2626; }
+.clear:hover:not(:disabled) { color: #dc2626; }
+.clear:disabled { opacity: .4; cursor: not-allowed; }
+.edit { display: inline-flex; align-items: center; gap: 5px; padding: 4px 12px; border-radius: 9999px; font-size: 11px; font-weight: 700; color: var(--blue-700); background: var(--blue-50); border: 1px solid var(--blue-100); transition: background .15s, color .15s; }
+.edit:hover { background: var(--blue-100); }
+.edit.on { background: #dcfce7; border-color: #86efac; color: #15803d; }
+.winput { width: 100%; min-width: 0; height: 28px; padding: 0 6px; text-align: right; font: inherit; font-weight: 700; color: var(--slate-900); background: #fff; border: 1px solid var(--slate-300); border-radius: 8px; outline: none; font-variant-numeric: tabular-nums; }
+.winput:focus { border-color: var(--blue-600); box-shadow: 0 0 0 3px rgba(37, 99, 235, .15); }
+.fab { position: fixed; right: 22px; top: 50%; transform: translateY(-50%); z-index: 30; width: 52px; height: 52px; border-radius: 16px; display: grid; place-items: center; color: #fff; background: var(--blue-600); box-shadow: 0 8px 20px rgba(37, 99, 235, .35); transition: filter .15s, transform .15s; }
+.fab:hover { filter: brightness(1.08); }
+.fab:active { transform: translateY(-50%) scale(.96); }
+.fab__n { position: absolute; top: -6px; left: -6px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; display: grid; place-items: center; font-style: normal; font-size: 11px; font-weight: 700; color: var(--blue-700); background: #fff; border: 1px solid var(--blue-100); box-shadow: 0 1px 3px rgba(15, 23, 42, .2); }
 
 .tbl { flex: 1; min-height: 120px; padding-right: 2px; }
 .empty { text-align: center; color: var(--slate-400); font-size: 12px; line-height: 1.6; padding: 28px 12px; }

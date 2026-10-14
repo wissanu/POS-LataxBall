@@ -272,9 +272,9 @@ function onModel(v) {
 .who__warn { font-size: 11px; color: var(--amber-700); }
 .who__note { font-size: 11px; color: var(--slate-400); }
 
-.tbl { border: 1px solid var(--slate-200); border-radius: var(--radius-md); overflow: hidden; max-height: 340px; overflow-y: auto; background: #fff; }
+.tbl { border: 1px solid var(--slate-200); border-radius: var(--radius-md); overflow: hidden; max-height: 246px; overflow-y: auto; background: #fff; } /* หัวตาราง 36 + 4 แถว x 52 + ขอบ = แสดง 4 แถว ที่เหลือเลื่อนดู */
 table { width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
-thead th { position: sticky; top: 0; z-index: 1; background: var(--slate-50); padding: 10px 8px; font-size: 12px; font-weight: 700; color: var(--slate-600); text-align: right; border-bottom: 1px solid var(--slate-200); white-space: nowrap; }
+thead th { position: sticky; top: 0; z-index: 1; background: var(--slate-50); height: 36px; padding: 0 8px; font-size: 12px; font-weight: 700; color: var(--slate-600); text-align: right; border-bottom: 1px solid var(--slate-200); white-space: nowrap; }
 thead th:first-child { text-align: center; }
 thead th:nth-child(6), thead th:nth-child(7) { text-align: center; }
 th:nth-child(1) { width: 64px; } th:nth-child(6), th:nth-child(7) { width: 64px; } th:nth-child(2) { width: 17%; } th:nth-child(4) { width: 14%; }

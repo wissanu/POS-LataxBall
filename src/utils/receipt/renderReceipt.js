@@ -9,6 +9,8 @@ const W = RECEIPT.widthDots
 const PAD = 10
 const INNER = W - PAD * 2
 const INK = '#000'
+// เว้นว่างด้านบนเท่าความสูงบรรทัดชื่อร้าน (34px x 1.45) กันหัวใบเสร็จชิดขอบ/โดนใบมีดตัดของเครื่อง
+const TOP_GAP = Math.round(34 * 1.45)
 
 const nf = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const num = (n) => nf.format(Number(n) || 0)
@@ -109,7 +111,7 @@ export async function renderReceipt(order, { copy = false } = {}) {
   // ผ่านที่ 1: วัดความสูง
   const probe = document.createElement('canvas').getContext('2d')
   const placed = []
-  let y = 6
+  let y = 6 + TOP_GAP
   for (const op of ops) {
     if (op.k === 'space') { y += op.h; continue }
     if (op.k === 'rule') { placed.push({ ...op, y: y + 6 }); y += 14; continue }
