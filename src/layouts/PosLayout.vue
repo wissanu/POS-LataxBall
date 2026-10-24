@@ -20,6 +20,7 @@ const menu = [
   { divider: true },
   { to: 'new-order', label: 'New Order', icon: 'plus', perm: ['purchase.create'] },
   { to: 'orders', label: 'Order List', icon: 'clipboard', perm: ['purchase.read'] },
+  { to: 'transport', label: 'การขนส่ง', icon: 'truck', perm: ['purchase.read'] },
   { divider: true },
   { to: 'system', label: 'จัดแต่งระบบ', icon: 'gear', perm: ['user.manage', 'role.manage'] },
 ]

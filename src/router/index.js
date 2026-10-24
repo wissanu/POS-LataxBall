@@ -19,6 +19,7 @@ const routes = [
       { path: 'reports', name: 'reports', component: () => import('@/views/ReportsView.vue'), meta: { requiresAuth: true, title: 'รายงานภาพรวม', permission: 'report.view' } },
       { path: 'new-order', name: 'new-order', component: () => import('@/views/NewOrderView.vue'), meta: { requiresAuth: true, title: 'New Order', permission: 'purchase.create' } },
       { path: 'orders', name: 'orders', component: () => import('@/views/OrderListView.vue'), meta: { requiresAuth: true, title: 'Orders', permission: 'purchase.read' } },
+      { path: 'transport', name: 'transport', component: () => import('@/views/TransportView.vue'), meta: { requiresAuth: true, title: 'การขนส่ง', permission: 'purchase.read' } },
       { path: 'no-access', name: 'no-access', component: () => import('@/views/NoAccessView.vue'), meta: { requiresAuth: true, title: 'ไม่มีสิทธิ์ใช้งาน' } },
       { path: 'system', name: 'system', component: () => import('@/views/SystemSettingsView.vue'), meta: { requiresAuth: true, title: 'จัดแต่งระบบ', permission: ['user.manage', 'role.manage'] } },
     ],
