@@ -3,8 +3,12 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import SalesChart from '@/components/SalesChart.vue'
 import PriceChart from '@/components/PriceChart.vue'
+import LossTrendChart from '@/components/LossTrendChart.vue'
 import BarList from '@/components/BarList.vue'
 import { reportService } from '@/services/reportService'
+import { transportService } from '@/services/transportService'
+import { useAuthStore } from '@/stores/auth'
+import { linearTrend, metricValue } from '@/utils/transport'
 import { getErrorMessage } from '@/services/http'
 import { formatKg, formatMoney, formatNumber, fromISODate, toISODate } from '@/utils/format'
 
@@ -132,6 +136,81 @@ const priceTiles = computed(() => {
   ]
 })
 
+// ================= น้ำหนักที่สูญเสียระหว่างขนส่ง (การขนส่งไปโรงงาน) — เฉพาะผู้มีสิทธิ์ transport.read (ผู้จัดการ/ผู้ดูแลระบบ) =================
+const auth = useAuthStore()
+const canTransport = computed(() => auth.can('transport.read'))
+const LOSS_PRESETS = [
+  { v: '30', label: '30 วัน' },
+  { v: '60', label: '60 วัน' },
+  { v: '90', label: '90 วัน' },
+  { v: 'custom', label: 'กำหนดเอง' },
+]
+const LOSS_METRICS = [
+  { v: 'lossKg', label: 'รวม (กก.)' },
+  { v: 'avgKg', label: 'เฉลี่ย/เที่ยว (กก.)' },
+  { v: 'lossPct', label: 'อัตรา (%)' },
+]
+const lossPreset = ref('30')
+const lossRange = reactive({ from: '', to: '' })
+const lossGroup = ref('day')
+const lossMetric = ref('lossKg')
+const lossData = ref(null)
+const lossLoading = ref(false)
+const lossError = ref('')
+let lossReq = 0
+
+const lossRangeError = computed(() => {
+  if (!lossRange.from || !lossRange.to) return 'เลือกวันที่เริ่มต้นและสิ้นสุด'
+  if (lossRange.from > lossRange.to) return 'วันที่เริ่มต้นต้องไม่เกินวันที่สิ้นสุด'
+  if (daysBetween(lossRange.from, lossRange.to) > 400) return 'เลือกช่วงวันที่ได้ไม่เกิน 400 วัน'
+  return ''
+})
+function applyLossPreset(v) {
+  lossPreset.value = v
+  if (v === 'custom') return
+  const today = new Date()
+  const from = new Date(today)
+  from.setDate(today.getDate() - (Number(v) - 1))
+  lossRange.from = toISODate(from)
+  lossRange.to = toISODate(today)
+  const n = daysBetween(lossRange.from, lossRange.to)
+  lossGroup.value = n <= 45 ? 'day' : n <= 150 ? 'week' : 'month'
+}
+async function loadLoss() {
+  if (!canTransport.value || lossRangeError.value) return
+  const id = ++lossReq
+  lossLoading.value = true
+  lossError.value = ''
+  try {
+    const res = await transportService.report({ from: lossRange.from, to: lossRange.to, groupBy: lossGroup.value })
+    if (id === lossReq) lossData.value = res
+  } catch (e) {
+    if (id === lossReq) lossError.value = getErrorMessage(e, 'โหลดกราฟการสูญเสียน้ำไม่สำเร็จ')
+  } finally {
+    if (id === lossReq) lossLoading.value = false
+  }
+}
+watch([() => lossRange.from, () => lossRange.to, lossGroup], loadLoss)
+onMounted(() => canTransport.value && applyLossPreset('30'))
+
+const LOSS_COLORS = { MORNING: '#d97706', AFTERNOON: '#2563eb' }
+const lossHasData = computed(() => !!lossData.value && Object.values(lossData.value.summary).some((s) => s.trips > 0))
+// การ์ดสรุปรายช่วงเวลา: รวมทั้งช่วง + ทิศทางแนวโน้ม (ตามหน่วยที่เลือกอยู่ในกราฟ)
+const lossTiles = computed(() => {
+  const d = lossData.value
+  if (!d) return []
+  const metricName = LOSS_METRICS.find((x) => x.v === lossMetric.value).label
+  return d.windows.map((w) => {
+    const s = d.summary[w.key]
+    const t = linearTrend(d.series.map((p) => metricValue(p[w.key], lossMetric.value)))
+    const verdict = !t ? { cls: 'none', text: s.trips ? 'ข้อมูลยังน้อยเกินบอกแนวโน้ม' : 'ไม่มีเที่ยวขนส่ง' }
+      : t.direction === 'up' ? { cls: 'up', text: `▲ สูญเสียมากขึ้น ${formatNumber(Math.abs(t.changePct))}%` }
+      : t.direction === 'down' ? { cls: 'down', text: `▼ สูญเสียน้อยลง ${formatNumber(Math.abs(t.changePct))}%` }
+      : { cls: 'flat', text: '● ทรงตัว' }
+    return { key: w.key, label: w.label, name: w.key === 'MORNING' ? 'ช่วงเช้า' : 'ช่วงบ่าย', s, verdict, metricName }
+  })
+})
+
 // ---- derived ----
 const summary = computed(() => data.value?.summary)
 const avgPrice = computed(() => (summary.value?.netKg ? summary.value.total / summary.value.netKg : 0))
@@ -248,6 +327,51 @@ function pick(key) { customer.value = customer.value === key ? null : key }
       </ul>
     </div>
 
+    <!-- แนวโน้มน้ำหนักที่สูญเสียระหว่างขนส่งไปโรงงาน (เฉพาะผู้จัดการ/ผู้ดูแลระบบ) -->
+    <div v-if="canTransport" class="panel">
+      <div class="panel__head">
+        <div>
+          <h2>แนวโน้มน้ำหนักที่สูญเสียระหว่างขนส่ง</h2>
+          <span class="hint">แยกตามเวลาออกเดินทาง · เส้นประ = เส้นแนวโน้ม (ชี้ว่าสูญเสียมากขึ้นหรือน้อยลง)</span>
+        </div>
+        <div class="tools">
+          <div class="seg seg--sm" role="group" aria-label="หน่วยที่แสดง">
+            <button v-for="x in LOSS_METRICS" :key="x.v" type="button" :class="{ on: lossMetric === x.v }" :aria-pressed="lossMetric === x.v" @click="lossMetric = x.v">{{ x.label }}</button>
+          </div>
+          <div class="seg seg--sm" role="group" aria-label="จัดกลุ่มตาม">
+            <button v-for="g in GROUPS" :key="g.v" type="button" :class="{ on: lossGroup === g.v }" :aria-pressed="lossGroup === g.v" @click="lossGroup = g.v">{{ g.label }}</button>
+          </div>
+          <div class="seg seg--sm" role="group" aria-label="ช่วงวันที่ของการขนส่ง">
+            <button v-for="p in LOSS_PRESETS" :key="p.v" type="button" :class="{ on: lossPreset === p.v }" :aria-pressed="lossPreset === p.v" @click="applyLossPreset(p.v)">{{ p.label }}</button>
+          </div>
+        </div>
+      </div>
+      <div v-if="lossPreset === 'custom'" class="dates dates--inline">
+        <label>ตั้งแต่ <input v-model="lossRange.from" type="date" :max="lossRange.to || undefined" /></label>
+        <label>ถึง <input v-model="lossRange.to" type="date" :min="lossRange.from || undefined" /></label>
+      </div>
+      <p v-if="lossRangeError" class="warn" role="alert">{{ lossRangeError }}</p>
+      <p v-if="lossError" class="state state--error" role="alert">{{ lossError }} <button type="button" @click="loadLoss">ลองใหม่</button></p>
+
+      <div class="ltiles" :class="{ busy: lossLoading }">
+        <div v-for="t in lossTiles" :key="t.key" class="ltile" :style="{ borderColor: LOSS_COLORS[t.key] }">
+          <span class="tile__label">{{ t.name }} · {{ t.label }} น.</span>
+          <b>{{ formatKg(t.s.lossKg) }}</b>
+          <span class="ptile__sub">{{ t.s.trips }} เที่ยว · ส่ง {{ formatKg(t.s.shippedKg) }}<template v-if="t.s.lossPct != null"> · สูญเสีย {{ formatNumber(t.s.lossPct) }}%</template></span>
+          <span class="verdict" :class="t.verdict.cls">{{ t.verdict.text }}<small v-if="t.verdict.cls !== 'none'"> ({{ t.metricName }})</small></span>
+        </div>
+      </div>
+
+      <p v-if="lossData && !lossHasData" class="state">ไม่มีเที่ยวขนส่งในช่วงที่เลือก</p>
+      <LossTrendChart v-else-if="lossData" :series="lossData.series" :windows="lossData.windows" :metric="lossMetric" :group-by="lossData.range.groupBy" :class="{ busy: lossLoading }" />
+      <p v-else-if="lossLoading" class="state">กำลังโหลด…</p>
+      <ul v-if="lossHasData" class="legend" aria-hidden="true">
+        <li><i class="lg" style="background: #d97706" /> ช่วงเช้า 06:00 – 12:00</li>
+        <li><i class="lg" style="background: #2563eb" /> ช่วงบ่าย 13:00 – 18:00</li>
+        <li class="legend__gap">เส้นประ = แนวโน้ม · วัน/ช่วงที่ไม่มีเที่ยวถูกข้าม ไม่นับเป็น 0<template v-if="lossData?.otherTrips"> · มี {{ lossData.otherTrips }} เที่ยวที่ออกนอกสองช่วงเวลา จึงไม่อยู่ในกราฟ</template></li>
+      </ul>
+    </div>
+
     <div class="two">
       <div class="panel">
         <div class="panel__head">
@@ -311,6 +435,12 @@ h2 { font-size: 15px; font-weight: 700; color: var(--slate-900); }
 .ptile b { font-size: 19px; font-weight: 800; letter-spacing: -.3px; color: var(--slate-900); }
 .ptile b small { font-size: 11px; font-weight: 500; color: var(--slate-500); }
 .ptile__sub { font-size: 11px; color: var(--slate-500); }
+.ltiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-bottom: 14px; transition: opacity .15s; }
+.ltile { display: flex; flex-direction: column; gap: 2px; padding: 10px 14px; border-radius: var(--radius-md); background: var(--slate-50); border-left: 4px solid var(--slate-300); }
+.ltile b { font-size: 19px; font-weight: 800; letter-spacing: -.3px; color: var(--slate-900); }
+.verdict { margin-top: 4px; font-size: 12px; font-weight: 700; }
+.verdict small { font-weight: 500; color: var(--slate-500); }
+.verdict.up { color: var(--red-700); } .verdict.down { color: var(--green-700); } .verdict.flat { color: var(--slate-600); } .verdict.none { color: var(--slate-400); font-weight: 500; }
 .legend { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 10px 0 0; padding: 0; font-size: 11px; color: var(--slate-500); }
 .legend li { display: inline-flex; align-items: center; gap: 6px; }
 .lg { width: 14px; height: 3px; border-radius: 2px; }

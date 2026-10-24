@@ -16,7 +16,7 @@ import { calcLoss, durationMinutes, formatDuration } from '@/utils/transport'
 const PAGE_SIZE = 10
 const auth = useAuthStore()
 const toast = useToast()
-const canEdit = computed(() => auth.can('purchase.create'))
+const canEdit = computed(() => auth.can('transport.create'))
 
 // ---- ช่วงวันที่ของรายการ ----
 const range = reactive({ from: addDays(bangkokDate(), -29), to: bangkokDate() })
