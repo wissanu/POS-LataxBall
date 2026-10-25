@@ -1,4 +1,6 @@
 <script setup>
+import BrandLogo from '@/components/BrandLogo.vue'
+import { APP_TITLE } from '@/config/brand'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppBackground from '@/components/AppBackground.vue'
@@ -66,7 +68,7 @@ async function exit() {
 
     <header class="top">
       <div class="top__left">
-        <router-link to="/" class="logo">eat<span>space</span></router-link>
+        <router-link to="/" class="logo" :aria-label="APP_TITLE"><BrandLogo :size="36" tagline /></router-link>
         <nav aria-label="Sections">
           <button v-for="t in tabs" :key="t" type="button" :class="{ on: t === activeTab }" @click="activeTab = t">{{ t }}</button>
         </nav>
@@ -121,8 +123,8 @@ async function exit() {
   background: rgba(230, 239, 250, .8); backdrop-filter: blur(6px); border-bottom: 1px solid rgba(255, 255, 255, .6); }
 .top__left, .top__right { display: flex; align-items: center; gap: 40px; }
 .top__right { gap: 16px; }
-.logo { font-size: 24px; font-weight: 800; letter-spacing: -0.6px; color: var(--blue-600); line-height: 32px; }
-.logo span { color: var(--slate-900); }
+/* กล่องโลโก้กว้างเท่า sidebar (224px) และเริ่มที่ขอบซ้ายของ sidebar (body padding 12px − top padding 24px) → โลโก้อยู่กึ่งกลาง sidebar พอดี */
+.logo { display: flex; align-items: center; justify-content: center; width: 224px; margin-left: -12px; }
 .top nav { display: flex; gap: 28px; }
 .top nav button { font-size: 14px; font-weight: 500; color: var(--slate-500); padding: 2px 0 4px; border-bottom: 2px solid transparent; }
 .top nav button.on { color: var(--blue-600); font-weight: 600; border-color: var(--blue-600); }
@@ -148,5 +150,5 @@ async function exit() {
 .link--on, .link--on:hover { background: var(--blue-600); color: #fff; font-weight: 600; box-shadow: var(--shadow-blue); }
 .exit { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--radius-md); font-size: 12px; font-weight: 500; color: var(--slate-500); border-top: 1px solid rgba(226, 232, 240, .6); margin-top: 17px; padding-top: 25px; }
 .exit:hover { color: #dc2626; }
-@media (max-width: 1100px) { .top nav { display: none; } .side { display: none; } }
+@media (max-width: 1100px) { .top nav { display: none; } .side { display: none; } .logo { width: auto; margin-left: 0; justify-content: flex-start; } }
 </style>

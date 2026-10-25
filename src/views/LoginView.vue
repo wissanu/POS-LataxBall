@@ -1,4 +1,7 @@
 <script setup>
+import BrandLogo from '@/components/BrandLogo.vue'
+import BrandMark from '@/components/BrandMark.vue'
+import { APP_TITLE } from '@/config/brand'
 import { ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
@@ -44,8 +47,7 @@ async function submit() {
 <template>
   <header class="bar">
     <div class="brand">
-      <span class="mark"><i /></span>
-      <b>eatspace</b>
+      <BrandLogo :size="36" tagline />
       <em>POS Station</em>
     </div>
     <div class="status"><i class="dot" /> Cloud Sync Active <span class="sep" /> Terminal 01</div>
@@ -53,7 +55,7 @@ async function submit() {
 
   <main class="stage">
     <form class="card" novalidate @submit.prevent="submit">
-      <span class="logo"><span class="mark mark--lg"><i /></span></span>
+      <span class="logo"><BrandMark :size="40" /></span>
       <h1>Sign in to Terminal</h1>
       <p class="sub">Enter your username and password to unlock the register session</p>
 
@@ -88,25 +90,21 @@ async function submit() {
 
   <footer class="bottom">
     <span><AppIcon name="shield" :size="13" /> Secure Terminal Isolation (TLS 1.3 End-to-End)</span>
-    <span>eatspace POS v2.4 <i /> Diagnostics <i /> Help Center</span>
+    <span>{{ APP_TITLE }} v2.4 <i /> Diagnostics <i /> Help Center</span>
   </footer>
 </template>
 
 <style scoped>
 .bar { height: 64px; display: flex; align-items: center; justify-content: space-between; padding: 0 24px; }
 .brand { display: flex; align-items: center; gap: 8px; }
-.brand b { font-size: 20px; font-weight: 800; letter-spacing: -.5px; color: var(--slate-900); margin-left: 2px; }
 .brand em { font-style: normal; font-size: 11px; font-weight: 500; color: var(--blue-700); background: #fff; border: 1px solid var(--blue-100); border-radius: 9999px; padding: 2px 9px; margin-left: 4px; }
-.mark { width: 32px; height: 32px; border-radius: 50%; background: #1d4ed8; display: grid; place-items: center; }
-.mark i { width: 14px; height: 14px; border: 2px solid #fff; border-radius: 50%; }
-.mark--lg { width: 32px; height: 32px; box-shadow: 0 4px 10px rgba(29, 78, 216, .35); }
 .status { display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-radius: 9999px; background: rgba(255, 255, 255, .8); border: 1px solid #fff; font-size: 12px; font-weight: 500; color: var(--slate-700); box-shadow: 0 1px 2px rgba(0, 0, 0, .05); }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green-700); }
 .sep { width: 6px; height: 6px; border-radius: 50%; background: var(--slate-300); }
 
 .stage { flex: 1; display: grid; place-items: center; padding: 24px; }
 .card { width: 448px; max-width: 100%; padding: 41px; border-radius: 28px; background: rgba(255, 255, 255, .88); border: 1px solid #fff; box-shadow: 0 25px 50px -12px rgba(30, 64, 175, .18); backdrop-filter: blur(12px); display: flex; flex-direction: column; gap: 0; }
-.logo { align-self: center; width: 56px; height: 56px; border-radius: 18px; background: rgba(219, 234, 254, .6); border: 1px solid #fff; display: grid; place-items: center; box-shadow: 0 4px 12px rgba(37, 99, 235, .12); margin-bottom: 12px; }
+.logo { align-self: center; margin-bottom: 12px; }
 h1 { text-align: center; font-size: 24px; font-weight: 800; letter-spacing: -.4px; color: var(--slate-900); }
 .sub { text-align: center; font-size: 14px; color: var(--slate-500); line-height: 20px; margin: 8px 20px 16px; }
 .pills { display: flex; justify-content: center; gap: 8px; margin-bottom: 20px; }

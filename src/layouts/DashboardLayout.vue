@@ -3,6 +3,8 @@ import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import AppBackground from '@/components/AppBackground.vue'
 import AppIcon from '@/components/AppIcon.vue'
+import BrandLogo from '@/components/BrandLogo.vue'
+import { APP_TITLE } from '@/config/brand'
 import { useAuthStore } from '@/stores/auth'
 import { initials } from '@/utils/format'
 
@@ -48,10 +50,7 @@ async function signOut() {
     <aside class="side">
       <div class="side__top">
         <div class="brand">
-          <router-link to="/" class="brand__link">
-            <span class="brand__mark"><AppIcon name="cup" :size="16" /></span>
-            Sweetco
-          </router-link>
+          <router-link to="/" class="brand__link" :aria-label="APP_TITLE"><BrandLogo :size="38" tagline /></router-link>
           <button type="button" class="ghost" aria-label="Toggle sidebar"><AppIcon name="sidebar" :size="14" /></button>
         </div>
 
@@ -105,8 +104,7 @@ async function signOut() {
 .side { width: 256px; flex: none; display: flex; flex-direction: column; justify-content: space-between; background: rgba(255, 255, 255, .85); border: 1px solid var(--glass-border); border-radius: var(--radius-lg); box-shadow: var(--shadow-panel); }
 .side__top { padding: 16px; overflow-y: auto; }
 .brand { display: flex; align-items: center; justify-content: space-between; padding-bottom: 12px; margin-bottom: 20px; border-bottom: 1px solid var(--slate-100); }
-.brand__link { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 800; color: var(--slate-900); }
-.brand__mark { width: 36px; height: 36px; border-radius: var(--radius-md); background: var(--blue-600); color: #fff; display: grid; place-items: center; box-shadow: var(--shadow-blue); }
+.brand__link { display: flex; align-items: center; }
 .ghost { width: 28px; height: 28px; border-radius: var(--radius-sm); display: grid; place-items: center; color: var(--slate-500); }
 .ghost:hover { background: var(--slate-100); }
 .group { font-size: 11px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--slate-400); padding: 0 12px 6px; }
