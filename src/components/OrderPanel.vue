@@ -7,7 +7,7 @@ import { useCartStore } from '@/stores/cart'
 import { useMemberStore } from '@/stores/members'
 import { useToast } from '@/composables/useToast'
 import { getErrorMessage } from '@/services/http'
-import { formatMoney, formatNumber, formatKg, sanitizeDecimal, toNumber } from '@/utils/format'
+import { formatMoney, formatNumber, formatKg, round2, sanitizeDecimal, toNumber } from '@/utils/format'
 
 /**
  * แผงรายการปัจจุบัน (ขวา) — แสดงผลเป็นข้อความทั้งหมด
@@ -56,9 +56,12 @@ watch(() => cart.lines.length, (n) => { if (!n) editing.value = false })
 
 onMounted(() => members.load())
 
+// เปอร์เซ็นต์: 50 → "50" · 33.5 → "33.5" (ไม่แสดง .00)
+const pct = (v) => String(Math.round(toNumber(v) * 100) / 100)
 const badge = computed(() => (cart.customerType === 'member' ? cart.member?.no ?? '—' : null))
 const customerText = computed(() => {
   if (cart.customerType === 'general') return { tag: 'ลูกค้าทั่วไป', name: '', ok: true }
+  if (cart.customerType === 'garden') return { tag: 'สวน', name: cart.sharePctValid ? `จ่ายลูกจ้าง ${pct(cart.sharePct)}% ของผลผลิต` : 'ใส่เปอร์เซ็นต์ส่วนแบ่งให้ถูกต้อง', ok: cart.sharePctValid }
   return cart.member
     ? { tag: 'ลูกค้าประจำ', name: `${cart.member.no} ${cart.member.name}`, ok: true }
     : { tag: 'ลูกค้าประจำ', name: 'ยังไม่ได้เลือกลูกค้า', ok: false }
@@ -75,6 +78,24 @@ const table = computed(() => {
   })
   return out
 })
+// ยอดรวมแยกตามประเภทสินค้า → เกรด+ราคา: ไว้เทียบกับใบที่ลูกน้องจด (double check ก่อนพิมพ์บิล)
+const TYPE_LABEL = { CUP_LUMP: 'ยางก้อนถ้วย', FOAM: 'ขี้ฟอง' }
+const breakdown = computed(() => {
+  const types = new Map()
+  for (const l of cart.lines) {
+    const t = l.productType ?? 'CUP_LUMP'
+    if (!types.has(t)) types.set(t, { type: t, label: TYPE_LABEL[t] ?? t, kg: 0, amount: 0, rows: new Map() })
+    const g = types.get(t)
+    const net = cart.netOf(l); const amt = cart.amountOf(l)
+    g.kg += net; g.amount += amt
+    if (!g.rows.has(l.productId)) g.rows.set(l.productId, { key: l.productId, name: l.name, price: l.pricePerKg, count: 0, kg: 0, amount: 0 })
+    const r = g.rows.get(l.productId)
+    r.count += 1; r.kg += net; r.amount += amt
+  }
+  return [...types.values()]
+    .sort((a, b) => (a.type === 'CUP_LUMP' ? 0 : 1) - (b.type === 'CUP_LUMP' ? 0 : 1))
+    .map((g) => ({ ...g, kg: round2(g.kg), amount: round2(g.amount), rows: [...g.rows.values()].map((r) => ({ ...r, kg: round2(r.kg), amount: round2(r.amount) })) }))
+})
 const lineNo = (uid) => cart.lines.findIndex((l) => l.uid === uid) + 1
 
 function addAddition() { editingAddition.value = null; additionOpen.value = true }
@@ -86,6 +107,7 @@ async function send(status, message) {
   if (!cart.lines.length || busy.value) return
   if (status !== 'draft') {
     if (cart.customerType === 'member' && !cart.member) return toast.error('กรุณาเลือกลูกค้าประจำ (เลือกได้ที่หน้าต่างเกรด)')
+    if (cart.customerType === 'garden' && !cart.sharePctValid) return toast.error('เปอร์เซ็นต์ส่วนแบ่งลูกจ้างสวนต้องมากกว่า 0 และไม่เกิน 100 (ตั้งได้ที่หน้าต่างเกรด)')
     if (cart.lines.some((l) => cart.netOf(l) <= 0)) return toast.error('น้ำหนักสินค้าต้องมากกว่าน้ำหนักภาชนะทุกแถว')
   }
   busy.value = true
@@ -180,11 +202,34 @@ async function send(status, message) {
         </ul>
       </section>
 
+      <div class="hold" role="radiogroup" aria-label="สถานะยาง">
+        <span class="hold__lbl">สถานะยาง</span>
+        <button type="button" role="radio" :aria-checked="cart.holdStatus === 'SAME_DAY'" :class="{ on: cart.holdStatus === 'SAME_DAY' }" @click="cart.holdStatus = 'SAME_DAY'">ขายต่อวัน</button>
+        <button type="button" role="radio" :aria-checked="cart.holdStatus === 'OVERNIGHT'" :class="{ on: cart.holdStatus === 'OVERNIGHT', night: true }" @click="cart.holdStatus = 'OVERNIGHT'">ค้างคืน</button>
+      </div>
+
+      <!-- ยอดรวมแยกเกรด: ผู้กรอกเทียบกับยอดของผู้จดได้ทันที -->
+      <section v-if="cart.lines.length" class="bd" aria-label="ยอดรวมแยกเกรด">
+        <h3>ยอดรวมแยกเกรด <small>{{ cart.customerType === 'garden' ? 'ยอดผลผลิตก่อนหักส่วนของสวน · ไว้เทียบกับใบจด' : 'ไว้เทียบกับใบจด' }}</small></h3>
+        <div class="bd__list scroll-y">
+          <div v-for="g in breakdown" :key="g.type" class="bd__grp">
+            <p class="bd__type" :class="{ 'bd__type--foam': g.type === 'FOAM' }"><span>{{ g.label }}</span><span>{{ formatNumber(g.kg) }} กก. · <b>{{ formatMoney(g.amount) }}</b></span></p>
+            <p v-for="r in g.rows" :key="r.key" class="bd__row">
+              <span class="bd__name">{{ r.name }} <i>@{{ formatNumber(r.price) }}</i></span>
+              <span class="bd__n">{{ r.count }} แถว</span>
+              <span class="bd__kg">{{ formatNumber(r.kg) }} กก.</span>
+              <b class="bd__amt">{{ formatMoney(r.amount) }}</b>
+            </p>
+          </div>
+        </div>
+      </section>
+
       <dl class="summary">
         <div><dt>น้ำหนักสุทธิรวม</dt><dd>{{ formatKg(cart.totalNet) }}</dd></div>
-        <div><dt>ยอดรวม</dt><dd>{{ formatMoney(cart.subtotal) }}</dd></div>
+        <div><dt>{{ cart.customerType === 'garden' ? 'ยอดผลผลิต' : 'ยอดรวม' }}</dt><dd>{{ formatMoney(cart.subtotal) }}</dd></div>
         <div><dt>เพิ่มราคา</dt><dd :class="{ plus: cart.additionAmount > 0 }">{{ cart.additionAmount > 0 ? '+' : '' }}{{ formatMoney(cart.additionAmount) }}</dd></div>
-        <div class="total"><dt>ยอดสุทธิ</dt><dd>{{ formatMoney(cart.total) }}</dd></div>
+        <div v-if="cart.customerType === 'garden'" class="garden"><dt>ส่วนของสวน (หัก {{ pct(100 - toNumber(cart.sharePct)) }}%)</dt><dd class="minus">−{{ formatMoney(cart.shareDeduction) }}</dd></div>
+        <div class="total"><dt>{{ cart.customerType === 'garden' ? `ยอดจ่ายลูกจ้างสวน (${pct(cart.sharePct)}%)` : 'ยอดสุทธิ' }}</dt><dd>{{ formatMoney(cart.total) }}</dd></div>
       </dl>
 
       <div class="actions">
@@ -265,6 +310,20 @@ tbody td.c { text-align: center; color: var(--slate-500); }
 .arow__del { flex: none; width: 28px; display: grid; place-items: center; color: var(--slate-400); }
 .arow__del:hover { background: var(--red-50); color: #dc2626; }
 
+.summary .garden dt { color: var(--amber-700); } .summary .minus { color: var(--amber-700); }
+.hold { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.hold__lbl { margin-right: auto; font-size: 11px; font-weight: 700; color: var(--slate-600); }
+.hold button { padding: 4px 12px; border-radius: 9999px; border: 1px solid var(--slate-200); background: #fff; font-size: 11px; font-weight: 700; color: var(--slate-500); }
+.hold button.on { background: var(--blue-50); border-color: var(--blue-100); color: var(--blue-700); } .hold button.on.night { background: #f5f3ff; border-color: #c4b5fd; color: #6d28d9; }
+.bd { margin-top: 6px; padding: 8px 10px; border-radius: var(--radius-md); background: var(--slate-50); border: 1px solid var(--slate-100); }
+.bd h3 { font-size: 12px; font-weight: 700; color: var(--slate-700); line-height: 1.5; } .bd h3 small { font-weight: 500; font-size: 10px; color: var(--slate-400); margin-left: 4px; }
+.bd__list { max-height: 150px; margin-top: 4px; display: flex; flex-direction: column; gap: 6px; }
+.bd__grp { display: flex; flex-direction: column; gap: 1px; }
+.bd__type { display: flex; justify-content: space-between; gap: 8px; padding: 2px 6px; border-radius: 6px; background: var(--blue-50); font-size: 11px; font-weight: 700; color: var(--blue-700); font-variant-numeric: tabular-nums; }
+.bd__type--foam { background: var(--amber-50); color: var(--amber-700); } .bd__type b { font-size: 12px; color: inherit; }
+.bd__row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 0 8px; align-items: baseline; padding: 1px 6px; font-size: 11px; color: var(--slate-600); font-variant-numeric: tabular-nums; }
+.bd__name { font-weight: 600; color: var(--slate-800); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .bd__name i { font-style: normal; font-weight: 500; color: var(--slate-400); }
+.bd__n { color: var(--slate-400); } .bd__amt { min-width: 64px; text-align: right; font-weight: 700; color: var(--slate-900); }
 .summary { margin: 0; padding-top: 8px; display: flex; flex-direction: column; gap: 4px; }
 .summary div { display: flex; justify-content: space-between; align-items: baseline; font-size: 12px; line-height: 1.6; }
 .summary dt { color: var(--slate-500); }

@@ -51,7 +51,7 @@ const statusText = { pending: 'PENDING', complete: 'COMPLETE', rejected: 'REJECT
           <td class="c-no"><strong>#{{ o.no }}</strong><time :datetime="o.createdAt">{{ formatDateTime(o.createdAt) }}</time></td>
           <td class="c-cus">
             <span class="avatar" :style="{ background: toneOf(o.id) }" aria-hidden="true">{{ initials(o.customer.name) }}</span>
-            <span class="who"><b>{{ o.customer.name }}</b><small v-if="o.customer.memberNo">{{ o.customer.memberNo }}</small><small v-else>ลูกค้าทั่วไป</small></span>
+            <span class="who"><b>{{ o.customer.name }}</b><small v-if="o.holdStatus === 'OVERNIGHT' || o.soldState !== 'none'" class="hold-chips"><span v-if="o.holdStatus === 'OVERNIGHT'" class="hchip hchip--night">ค้างคืน</span><span v-if="o.soldState !== 'none'" class="hchip hchip--sold">{{ o.soldState === 'all' ? 'ขายโรงงานแล้ว' : 'ขายโรงงานบางส่วน' }}</span></small><small v-if="o.customer.type === 'garden'" class="gardtag">สวน · จ่ายลูกจ้าง {{ o.sharePct }}%</small><small v-else-if="o.customer.memberNo">{{ o.customer.memberNo }}</small><small v-else>ลูกค้าทั่วไป</small></span>
           </td>
           <td class="c-items">
             <span v-for="g in grades(o).slice(0, 3)" :key="g" class="gtag">{{ g }}</span>
@@ -169,4 +169,8 @@ th.c-num, td.c-num { text-align: right; white-space: nowrap; }
 .minus { color: var(--red-700); font-weight: 700; }
 
 @media (max-width: 900px) { .c-items { display: none; } thead th.c-items { display: none; } }
+.gardtag { color: var(--amber-700); font-weight: 600; }
+.hold-chips { display: flex; gap: 4px; margin-bottom: 2px; }
+.hchip { padding: 1px 8px; border-radius: 9999px; font-size: 10px; font-weight: 700; border: 1px solid; }
+.hchip--night { background: #f5f3ff; color: #6d28d9; border-color: #c4b5fd; } .hchip--sold { background: #f0fdf4; color: #15803d; border-color: #86efac; }
 </style>

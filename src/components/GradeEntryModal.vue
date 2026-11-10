@@ -77,7 +77,8 @@ watch(() => props.modelValue, (open) => {
   for (const m of ['none', 'keng']) {
     rows[m] = cart.linesOf(props.product.id, m).map((l) => ({ key: ++keySeq, uid: l.uid, gross: String(l.gross), editing: false }))
   }
-  mode.value = !rows.none.length && rows.keng.length ? 'keng' : 'none'
+  // ค่าเริ่มต้น = ตะกร้าเข่ง (ใช้เป็นหลัก) · เปิดเกรดที่เคยบันทึกไว้แต่มีเฉพาะแบบ "ไม่ใส่ตะกร้าเข่ง" จึงเปิดแท็บนั้นให้
+  mode.value = rows.none.length && !rows.keng.length ? 'none' : 'keng'
   ensureRow(mode.value)
   initial = snapshot()
   setTimeout(focusFirstEditing, 120) // หลัง animation ของหน้าต่าง และหลัง BaseModal ย้าย focus เสร็จ
@@ -181,10 +182,19 @@ function onModel(v) {
         <div class="seg" role="radiogroup" aria-label="ประเภทลูกค้า">
           <button type="button" role="radio" :aria-checked="cart.customerType === 'member'" :class="{ on: cart.customerType === 'member' }" @click="cart.customerType = 'member'">ลูกค้าประจำ</button>
           <button type="button" role="radio" :aria-checked="cart.customerType === 'general'" :class="{ on: cart.customerType === 'general' }" @click="cart.customerType = 'general'">ลูกค้าทั่วไป</button>
+          <button type="button" role="radio" :aria-checked="cart.customerType === 'garden'" :class="{ on: cart.customerType === 'garden' }" @click="cart.customerType = 'garden'">สวน</button>
         </div>
         <MemberCombobox v-if="cart.customerType === 'member'" v-model="cart.memberId" :members="members.items" />
         <p v-if="cart.customerType === 'member' && !cart.memberId" class="who__warn">เลือกลูกค้าประจำก่อนพิมพ์บิล</p>
         <p v-else-if="cart.customerType === 'general'" class="who__note">ใช้กับผู้ที่ไม่ใช่ลูกค้าประจำ (ไม่ต้องระบุชื่อ)</p>
+        <div v-else-if="cart.customerType === 'garden'" class="share">
+          <label for="share-pct">ส่วนแบ่งลูกจ้างสวน</label>
+          <span class="share__in"><input id="share-pct" v-model="cart.sharePct" inputmode="decimal" maxlength="6" autocomplete="off" aria-describedby="share-note" @input="cart.sharePct = sanitizeDecimal($event.target.value, 2)" /><em>%</em></span>
+          <p id="share-note" class="who__note" :class="{ 'who__warn': !cart.sharePctValid }">
+            <template v-if="cart.sharePctValid">สวนของร้าน: ยอดที่จ่าย = ผลผลิต × {{ cart.sharePct }}% (เช่น ผลผลิต 10,000 → จ่ายลูกจ้าง {{ formatMoney(10000 * toNumber(cart.sharePct) / 100) }}) · ปรับ % ได้เฉพาะใบนี้</template>
+            <template v-else>ใส่เปอร์เซ็นต์มากกว่า 0 และไม่เกิน 100</template>
+          </p>
+        </div>
       </section>
     </div>
 
@@ -266,9 +276,14 @@ function onModel(v) {
 
 .who { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--slate-200); border-radius: var(--radius-md); background: var(--slate-50); position: relative; z-index: 5; }
 .who h3 { font-size: 11px; font-weight: 700; letter-spacing: .3px; color: var(--slate-500); }
-.seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; background: var(--slate-100); border-radius: var(--radius-md); }
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; background: var(--slate-100); border-radius: var(--radius-md); }
 .seg button { padding: 7px 8px; border-radius: 9px; font-size: 12px; font-weight: 600; line-height: 1.4; color: var(--slate-500); transition: background .15s, color .15s; }
 .seg button.on { background: #fff; color: var(--blue-700); box-shadow: 0 1px 3px rgba(15, 23, 42, .12); }
+.share { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 10px; }
+.share label { font-size: 12px; font-weight: 700; color: var(--slate-700); }
+.share__in { position: relative; } .share__in input { width: 92px; height: 34px; padding: 0 26px 0 10px; text-align: right; font: inherit; font-size: 14px; font-weight: 700; color: var(--slate-900); border: 1px solid var(--slate-300); border-radius: 10px; background: #fff; outline: none; }
+.share__in input:focus { border-color: var(--blue-600); box-shadow: 0 0 0 3px rgba(37, 99, 235, .15); } .share__in em { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); font-style: normal; font-size: 12px; color: var(--slate-400); pointer-events: none; }
+.share p { grid-column: 1 / -1; }
 .who__warn { font-size: 11px; color: var(--amber-700); }
 .who__note { font-size: 11px; color: var(--slate-400); }
 

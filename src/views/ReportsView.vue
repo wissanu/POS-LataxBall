@@ -4,9 +4,13 @@ import AppIcon from '@/components/AppIcon.vue'
 import SalesChart from '@/components/SalesChart.vue'
 import PriceChart from '@/components/PriceChart.vue'
 import LossTrendChart from '@/components/LossTrendChart.vue'
+import ProfitChart from '@/components/ProfitChart.vue'
+import ChartLabel from '@/components/ChartLabel.vue'
 import BarList from '@/components/BarList.vue'
 import { reportService } from '@/services/reportService'
 import { transportService } from '@/services/transportService'
+import { financeService } from '@/services/financeService'
+import { calcProfit } from '@/utils/finance'
 import { useAuthStore } from '@/stores/auth'
 import { linearTrend, metricValue } from '@/utils/transport'
 import { getErrorMessage } from '@/services/http'
@@ -211,6 +215,64 @@ const lossTiles = computed(() => {
   })
 })
 
+// ================= รายรับ - รายจ่าย - กำไร (ใช้ช่วงวันที่เดียวกับด้านบน) — เฉพาะ transport.read =================
+const pGroup = ref('day')
+const pData = ref(null)
+const pLoading = ref(false)
+const pError = ref('')
+let pReq = 0
+async function loadProfit() {
+  if (!canTransport.value || rangeError.value) return
+  const id = ++pReq
+  pLoading.value = true
+  pError.value = ''
+  try {
+    const res = await financeService.report({ from: range.from, to: range.to, groupBy: pGroup.value })
+    if (id === pReq) pData.value = res
+  } catch (e) {
+    if (id === pReq) pError.value = getErrorMessage(e, 'โหลดกราฟรายรับ-รายจ่ายไม่สำเร็จ')
+  } finally {
+    if (id === pReq) pLoading.value = false
+  }
+}
+watch([() => range.from, () => range.to, pGroup], loadProfit)
+const pSum = computed(() => (pData.value ? calcProfit(pData.value.summary) : null))
+const pHasData = computed(() => !!pData.value && pData.value.series.some((p) => p.revenue || p.purchase || p.labor || p.transport || p.other))
+const pTiles = computed(() => {
+  const s = pSum.value; const r = pData.value?.summary
+  if (!s) return []
+  return [
+    { key: 'in', label: 'รายรับ (บิลโรงงาน)', value: formatMoney(s.revenue), sub: `${r.billTrips}/${r.trips} เที่ยวมียอดบิล` },
+    { key: 'out', label: 'รายจ่ายรวม', value: formatMoney(s.expense), sub: `ซื้อยาง ${formatMoney(r.purchase)}` },
+    { key: s.profit < 0 ? 'loss' : 'net', label: 'กำไรสุทธิ', value: formatMoney(s.profit), sub: s.margin != null ? `อัตรากำไร ${formatNumber(s.margin)}% ของรายรับ` : 'ยังไม่มีรายรับ' },
+    { key: 'kg', label: 'กำไรต่อ กก.', value: r.factoryNetKg > 0 ? formatMoney(s.profit / r.factoryNetKg) : '–', sub: `โรงงานชั่งได้ ${formatKg(r.factoryNetKg)}` },
+  ]
+})
+const expenseItems = computed(() => {
+  const r = pData.value?.summary
+  if (!r) return []
+  return [
+    { key: 'purchase', name: 'ซื้อยางจากลูกค้า', value: r.purchase },
+    { key: 'labor', name: 'ค่าคนงาน', value: r.labor },
+    { key: 'transport', name: 'ค่าขนส่ง / น้ำมัน', value: r.transport },
+    { key: 'other', name: 'อื่น ๆ', value: r.other },
+  ].filter((i) => i.value > 0)
+})
+
+// ป้ายแกนนอนตามการจัดกลุ่ม
+const xName = (g) => (g === 'month' ? 'เดือน' : g === 'week' ? 'สัปดาห์ (วันเริ่มต้นสัปดาห์)' : 'วันที่')
+
+// ทางลัดไปยังแต่ละกราฟ
+const NAV = computed(() => [
+  { id: 'c-buy', label: 'ยอดรับซื้อ' },
+  ...(canTransport.value ? [{ id: 'c-profit', label: 'รายรับ-รายจ่าย-กำไร' }] : []),
+  { id: 'c-price', label: 'ราคารับซื้อ' },
+  ...(canTransport.value ? [{ id: 'c-loss', label: 'น้ำหายระหว่างขนส่ง' }] : []),
+  { id: 'c-cust', label: 'รายลูกค้า' },
+  { id: 'c-prod', label: 'ตามสินค้า' },
+])
+const jump = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+
 // ---- derived ----
 const summary = computed(() => data.value?.summary)
 const avgPrice = computed(() => (summary.value?.netKg ? summary.value.total / summary.value.netKg : 0))
@@ -225,7 +287,7 @@ const tiles = computed(() => {
   const s = summary.value
   if (!s) return []
   return [
-    { label: 'ยอดการขายรวม', value: formatMoney(s.total), delta: delta(s.total, s.previous.total) },
+    { label: 'ยอดรับซื้อรวม', value: formatMoney(s.total), delta: delta(s.total, s.previous.total) },
     { label: 'น้ำหนักสุทธิรวม', value: formatKg(s.netKg), delta: delta(s.netKg, s.previous.netKg) },
     { label: 'จำนวนบิล', value: formatNumber(s.billCount).replace(/\.00$/, ''), delta: delta(s.billCount, s.previous.billCount) },
     { label: 'ราคาเฉลี่ย / กก.', value: formatMoney(avgPrice.value), delta: null },
@@ -245,7 +307,8 @@ function pick(key) { customer.value = customer.value === key ? null : key }
   <section class="rep glass">
     <header class="head">
       <h1>รายงานภาพรวม</h1>
-      <p>ยอดการขายและลูกค้าในช่วงเวลาที่เลือก</p>
+      <p>ยอดรับซื้อ · รายรับ-รายจ่าย-กำไร · ราคา · น้ำหายระหว่างขนส่ง ในช่วงเวลาที่เลือก</p>
+      <nav class="jump" aria-label="ไปยังกราฟ"><span>กราฟในหน้านี้:</span><button v-for="n in NAV" :key="n.id" type="button" @click="jump(n.id)">{{ n.label }}</button></nav>
     </header>
 
     <div class="controls">
@@ -270,9 +333,13 @@ function pick(key) { customer.value = customer.value === key ? null : key }
       <div v-if="!tiles.length" class="tile tile--skeleton">กำลังโหลด…</div>
     </div>
 
-    <div class="panel">
+    <div id="c-buy" class="panel">
       <div class="panel__head">
-        <h2>ยอดการขาย<template v-if="customer"> · {{ customerName }}</template></h2>
+        <ChartLabel
+          tag="ยอดรับซื้อ" tone="blue" :title="`ยอดรับซื้อจากลูกค้า${customer ? ' · ' + customerName : ''}`"
+          desc="ร้านจ่ายเงินซื้อยางจากลูกค้าไปเท่าไหร่ในแต่ละช่วง (จากใบรับซื้อที่ยืนยันแล้ว) · เส้นประ = ค่าเฉลี่ย"
+          :x="xName(groupBy)" :y="metric === 'total' ? 'ยอดเงินที่จ่ายให้ลูกค้า (บาท)' : 'น้ำหนักสุทธิที่รับซื้อ (กก.)'"
+        />
         <div class="tools">
           <button v-if="customer" type="button" class="chip" @click="customer = null">เฉพาะ {{ customerName }} <AppIcon name="x" :size="12" /></button>
           <div class="seg seg--sm" role="group" aria-label="หน่วยที่แสดง">
@@ -283,15 +350,56 @@ function pick(key) { customer.value = customer.value === key ? null : key }
           </div>
         </div>
       </div>
-      <p v-if="data && !hasData" class="state">ไม่มีรายการขายในช่วงที่เลือก</p>
+      <p v-if="data && !hasData" class="state">ไม่มีรายการรับซื้อในช่วงที่เลือก</p>
       <SalesChart v-else-if="data" :points="data.series" :metric="metric" :group-by="data.range.groupBy" :class="{ busy: loading }" />
       <p v-else-if="loading" class="state">กำลังโหลด…</p>
     </div>
 
-    <!-- ความผันผวนของราคารับซื้อรายวัน -->
-    <div class="panel">
+    <!-- รายรับ - รายจ่าย - กำไร (เฉพาะผู้จัดการ/ผู้ดูแลระบบ) -->
+    <div v-if="canTransport" id="c-profit" class="panel">
       <div class="panel__head">
-        <h2>ราคารับซื้อรายวัน (ที่ตั้งหน้าร้าน)</h2>
+        <ChartLabel
+          tag="กำไร" tone="green" title="รายรับ - รายจ่าย - กำไรสุทธิ"
+          desc="แท่งเขียว = เงินที่ได้จากบิลโรงงาน · แท่งส้ม = รายจ่ายรวม (ซื้อยาง + ค่าคนงาน + ค่าขนส่ง + อื่น ๆ) · เส้นน้ำเงิน = กำไรสุทธิ (จุดแดง = ขาดทุน)"
+          :x="xName(pGroup)" y="จำนวนเงิน (บาท) — เส้นดำ = 0"
+        />
+        <div class="tools">
+          <div class="seg seg--sm" role="group" aria-label="จัดกลุ่มตาม">
+            <button v-for="g in GROUPS" :key="g.v" type="button" :class="{ on: pGroup === g.v }" :aria-pressed="pGroup === g.v" @click="pGroup = g.v">{{ g.label }}</button>
+          </div>
+        </div>
+      </div>
+      <p v-if="pError" class="state state--error" role="alert">{{ pError }} <button type="button" @click="loadProfit">ลองใหม่</button></p>
+      <div class="ptiles" :class="{ busy: pLoading }">
+        <div v-for="t in pTiles" :key="t.key" class="ptile" :class="`pt--${t.key}`">
+          <span class="tile__label">{{ t.label }}</span>
+          <b>{{ t.value }}</b>
+          <span class="ptile__sub">{{ t.sub }}</span>
+        </div>
+      </div>
+      <p v-if="pData && !pHasData" class="state">ไม่มีรายรับ/รายจ่ายในช่วงที่เลือก</p>
+      <ProfitChart v-else-if="pData" :points="pData.series" :group-by="pData.range.groupBy" :class="{ busy: pLoading }" />
+      <p v-else-if="pLoading" class="state">กำลังโหลด…</p>
+      <ul v-if="pHasData" class="legend" aria-hidden="true">
+        <li><i class="lg" style="background: #4ade80; height: 8px" /> รายรับ</li>
+        <li><i class="lg" style="background: #fbbf24; height: 8px" /> รายจ่ายรวม</li>
+        <li><i class="lg" style="background: #2563eb" /> กำไรสุทธิ</li>
+        <li class="legend__gap">คิดตามวันที่เกิดรายการ: ซื้อยางวันหนึ่งแต่ขายอีกวัน จะเห็นขาดทุนชั่วคราว — ดูช่วงยาว/รายสัปดาห์จะตรงกว่า</li>
+      </ul>
+      <div v-if="expenseItems.length" class="exp">
+        <ChartLabel tag="สัดส่วน" tone="amber" title="รายจ่ายไปอยู่ที่ไหนบ้าง" desc="แบ่งรายจ่ายรวมของช่วงที่เลือก (แท่งยาว = จ่ายมาก · % = สัดส่วนของรายจ่ายทั้งหมด)" />
+        <BarList :items="expenseItems" :format="formatMoney" />
+      </div>
+    </div>
+
+    <!-- ความผันผวนของราคารับซื้อรายวัน -->
+    <div id="c-price" class="panel">
+      <div class="panel__head">
+        <ChartLabel
+          tag="ราคา" tone="violet" title="ราคารับซื้อรายวัน (ที่ตั้งหน้าร้าน)"
+          desc="ราคาต่อ กก. ที่ร้านประกาศรับซื้อในแต่ละวัน — ดูว่าราคาขึ้น/ลงอย่างไร ไม่ใช่ยอดเงินที่จ่ายจริง"
+          x="วันที่" y="ราคารับซื้อ (บาท/กก.)"
+        />
         <div class="tools">
           <label class="sel"><span class="sr-only">เกรด</span>
             <select v-model="priceGrade" aria-label="เลือกเกรด">
@@ -328,12 +436,13 @@ function pick(key) { customer.value = customer.value === key ? null : key }
     </div>
 
     <!-- แนวโน้มน้ำหนักที่สูญเสียระหว่างขนส่งไปโรงงาน (เฉพาะผู้จัดการ/ผู้ดูแลระบบ) -->
-    <div v-if="canTransport" class="panel">
+    <div v-if="canTransport" id="c-loss" class="panel">
       <div class="panel__head">
-        <div>
-          <h2>แนวโน้มน้ำหนักที่สูญเสียระหว่างขนส่ง</h2>
-          <span class="hint">แยกตามเวลาออกเดินทาง · เส้นประ = เส้นแนวโน้ม (ชี้ว่าสูญเสียมากขึ้นหรือน้อยลง)</span>
-        </div>
+        <ChartLabel
+          tag="น้ำหาย" tone="red" title="แนวโน้มน้ำหนักที่สูญเสียระหว่างขนส่ง"
+          desc="ยางที่ส่งไปโรงงานหนักหายไปเท่าไหร่ระหว่างทาง (น้ำหนักที่ส่ง − น้ำหนักที่โรงงานชั่ง) แยกเที่ยวที่ออกช่วงเช้า/บ่าย · เส้นประ = แนวโน้มว่าหายมากขึ้นหรือน้อยลง"
+          :x="xName(lossGroup)" :y="lossMetric === 'lossPct' ? 'น้ำหายคิดเป็น % ของน้ำหนักที่ส่ง' : lossMetric === 'avgKg' ? 'น้ำหนักที่หายเฉลี่ยต่อเที่ยว (กก.)' : 'น้ำหนักที่หายรวม (กก.)'"
+        />
         <div class="tools">
           <div class="seg seg--sm" role="group" aria-label="หน่วยที่แสดง">
             <button v-for="x in LOSS_METRICS" :key="x.v" type="button" :class="{ on: lossMetric === x.v }" :aria-pressed="lossMetric === x.v" @click="lossMetric = x.v">{{ x.label }}</button>
@@ -373,15 +482,14 @@ function pick(key) { customer.value = customer.value === key ? null : key }
     </div>
 
     <div class="two">
-      <div class="panel">
+      <div id="c-cust" class="panel">
         <div class="panel__head">
-          <h2>ยอดขายรายลูกค้า</h2>
-          <span class="hint">คลิกเพื่อดูเฉพาะลูกค้ารายนั้นในกราฟด้านบน</span>
+          <ChartLabel tag="ลูกค้า" tone="slate" title="ยอดรับซื้อรายลูกค้า (10 อันดับแรก)" desc="ลูกค้ารายไหนขายยางให้ร้านมากที่สุด เรียงจากมากไปน้อย · คลิกเพื่อให้กราฟ “ยอดรับซื้อ” ด้านบนแสดงเฉพาะลูกค้ารายนั้น" />
         </div>
         <BarList :items="customerItems" :format="formatMoney" selectable :active-key="customer" @select="pick" />
       </div>
-      <div class="panel">
-        <div class="panel__head"><h2>ยอดขายตามสินค้า</h2></div>
+      <div id="c-prod" class="panel">
+        <div class="panel__head"><ChartLabel tag="สินค้า" tone="slate" title="ยอดรับซื้อตามเกรดสินค้า" desc="ยางแต่ละเกรดคิดเป็นเงินเท่าไหร่ในช่วงที่เลือก (ตัวเลขใต้ชื่อ = น้ำหนักสุทธิ)" /></div>
         <BarList :items="productItems" :format="formatMoney" />
       </div>
     </div>
@@ -441,6 +549,12 @@ h2 { font-size: 15px; font-weight: 700; color: var(--slate-900); }
 .verdict { margin-top: 4px; font-size: 12px; font-weight: 700; }
 .verdict small { font-weight: 500; color: var(--slate-500); }
 .verdict.up { color: var(--red-700); } .verdict.down { color: var(--green-700); } .verdict.flat { color: var(--slate-600); } .verdict.none { color: var(--slate-400); font-weight: 500; }
+.jump { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; font-size: 11px; color: var(--slate-500); }
+.jump button { padding: 3px 10px; border-radius: 9999px; border: 1px solid var(--slate-200); background: rgba(255, 255, 255, .8); font-size: 11px; font-weight: 600; color: var(--slate-600); }
+.jump button:hover { background: var(--blue-50); color: var(--blue-700); border-color: var(--blue-100); }
+.exp { margin-top: 16px; padding-top: 14px; border-top: 1px dashed var(--slate-200); display: flex; flex-direction: column; gap: 10px; }
+.pt--in { border-color: #16a34a; } .pt--out { border-color: #d97706; } .pt--net { border-color: #2563eb; } .pt--loss { border-color: #dc2626; } .pt--kg { border-color: var(--slate-300); }
+.panel { scroll-margin-top: 12px; }
 .legend { list-style: none; display: flex; flex-wrap: wrap; gap: 6px 16px; margin: 10px 0 0; padding: 0; font-size: 11px; color: var(--slate-500); }
 .legend li { display: inline-flex; align-items: center; gap: 6px; }
 .lg { width: 14px; height: 3px; border-radius: 2px; }

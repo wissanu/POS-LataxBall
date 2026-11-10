@@ -4,8 +4,9 @@ import { http } from './http'
 //
 // GET  /price-board[?date=YYYY-MM-DD]
 //   -> { serverTime, today, date, exists, board: { id, date, copiedFrom, createdAt } | null,
-//        grades: [{ code, name }],            // เกรดที่ใช้งาน (ไว้สร้างฟอร์มตั้งราคา)
-//        items:  [{ id, grade, name, price }], // รายการของวันนั้น (id = productId ตอนส่ง order)
+//        grades: [{ code, name, productType }],  // เกรดที่ใช้งาน (ไว้สร้างฟอร์มตั้งราคา) · productType = 'CUP_LUMP' (ยางก้อนถ้วย) | 'FOAM' (ขี้ฟอง)
+//        productTypes: [{ code, label }],         // ประเภทสินค้า — ตั้งราคาแยกกัน: กำหนดช่วงราคา แล้วเลือกราคาให้แต่ละเกรด
+//        items:  [{ id, grade, name, productType, price }], // รายการของวันนั้น (id = productId ตอนส่ง order)
 //        canSync, syncSource: { date, isYesterday } | null,  // sync ได้เมื่อ: ยังไม่มีข้อมูลวันนี้ หรือ discard ทิ้งหมดแล้ว (ต้นทาง = เมื่อวาน/วันเปิดทำการล่าสุด)
 //        discardedAll, missingGrades: ['A+'] }               // missingGrades = เกรดที่ใช้งานแต่ยังไม่มีราคาวันนี้
 // PUT  /price-board/today          { prices: { A: 29.5, 'B+': 28, ... } }  -> same (สร้างต้องครบทุกเกรด / แก้ส่งบางเกรดได้)

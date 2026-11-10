@@ -22,7 +22,8 @@ export const usePriceBoardStore = defineStore('priceBoard', () => {
   const date = ref('') // วันที่ของข้อมูลที่แสดงอยู่
   const exists = ref(false)
   const board = ref(null) // { id, date, copiedFrom, createdAt }
-  const grades = ref([]) // [{ code, name }] เกรดที่ใช้งาน
+  const grades = ref([]) // [{ code, name, productType }] เกรดที่ใช้งาน
+  const productTypes = ref([]) // [{ code: 'CUP_LUMP'|'FOAM', label }] ประเภทสินค้า (ตั้งราคาแยกกัน)
   const items = ref([]) // [{ id, grade, name, price }]
   const syncSource = ref(null) // { date, isYesterday } วันต้นทางที่ sync ได้ (null = sync ไม่ได้)
   const discardedAll = ref(false) // มีกลุ่มของวันนี้ แต่ถูก discard ทิ้งทั้งหมด
@@ -42,6 +43,7 @@ export const usePriceBoardStore = defineStore('priceBoard', () => {
     exists.value = res.exists
     board.value = res.board
     grades.value = res.grades
+    productTypes.value = res.productTypes ?? []
     // keep the old array when nothing changed so the grid does not re-render on every poll
     if (JSON.stringify(items.value) !== JSON.stringify(res.items)) items.value = res.items
     syncSource.value = res.syncSource ?? null
@@ -118,5 +120,5 @@ export const usePriceBoardStore = defineStore('priceBoard', () => {
     document.removeEventListener('visibilitychange', onVisible)
   }
 
-  return { loaded, loading, busy, error, date, exists, board, grades, items, products, syncSource, discardedAll, missingGrades, canSync, dayChanges, load, save, syncYesterday, discard, start, stop }
+  return { loaded, loading, busy, error, date, exists, board, grades, productTypes, items, products, syncSource, discardedAll, missingGrades, canSync, dayChanges, load, save, syncYesterday, discard, start, stop }
 })

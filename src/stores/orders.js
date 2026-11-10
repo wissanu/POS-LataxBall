@@ -30,6 +30,7 @@ export const useOrderStore = defineStore('orders', () => {
   const page = ref(1)
   const total = ref(0)
   const totalPages = ref(1)
+  const summary = ref({ bills: 0, netKg: 0, total: 0, excluded: 0, byProduct: [], adjustment: 0 }) // ยอดรวมของตัวกรองปัจจุบัน (ทุกหน้า) · byProduct = แยกยางก้อนถ้วย/ขี้ฟอง
   const search = ref(emptySearch()) // { no, customer: {id,name,code,...}|null, from, to }
 
   const hasSearch = computed(() => !!(search.value.no || search.value.customer || search.value.from || search.value.to))
@@ -57,6 +58,7 @@ export const useOrderStore = defineStore('orders', () => {
       if (JSON.stringify(list.value) !== JSON.stringify(res.data)) list.value = res.data
       if (JSON.stringify(queue.value) !== JSON.stringify(res.queue)) queue.value = res.queue
       total.value = res.total
+      if (res.summary) summary.value = res.summary
       windowFrom.value = res.windowFrom || ''
       windowTo.value = res.windowTo || ''
       totalPages.value = res.totalPages
@@ -140,7 +142,7 @@ export const useOrderStore = defineStore('orders', () => {
   }
 
   return {
-    list, queue, loading, error, statusFilter, range, windowFrom, windowTo, page, total, totalPages, search, hasSearch,
+    list, queue, loading, error, statusFilter, range, windowFrom, windowTo, page, total, totalPages, summary, search, hasSearch,
     load, goPage, setRange, setStatusFilter, applySearch, removeSearch, clearSearch, resetView, setStatus, startPolling, stopPolling,
   }
 })

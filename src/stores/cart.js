@@ -23,8 +23,11 @@ export const useCartStore = defineStore('cart', () => {
   const members = useMemberStore()
   const settings = useSettingsStore()
 
-  const lines = ref([]) // { uid, productId, name, pricePerKg, containerId, containerLabel, gross }
-  const customerType = ref('general') // 'member' | 'general'
+  const lines = ref([]) // { uid, productId, name, productType, pricePerKg, containerId, containerLabel, gross }
+  const customerType = ref('general') // 'member' | 'general' | 'garden' (สวน: จ่ายลูกจ้างตาม sharePct% ของผลผลิต)
+  const holdStatus = ref('SAME_DAY') // สถานะยาง: SAME_DAY = ขายต่อวัน · OVERNIGHT = ค้างคืน (เปลี่ยนภายหลังได้ที่เมนู "ยางรอขาย")
+  const sharePct = ref('50') // ส่วนแบ่งลูกจ้างสวน (% ของผลผลิต) — ค่าเริ่มต้น 50 ปรับได้ต่อใบ
+  const sharePctValid = computed(() => { const n = toNumber(sharePct.value); return n > 0 && n <= 100 })
   const memberId = ref(null)
   const additions = ref([]) // { id, scope, mode, value }
 
@@ -33,7 +36,9 @@ export const useCartStore = defineStore('cart', () => {
   const customer = computed(() =>
     customerType.value === 'member'
       ? { type: 'member', memberNo: member.value?.no ?? null, name: member.value?.name ?? null }
-      : { type: 'general', memberNo: null, name: 'ลูกค้าทั่วไป' },
+      : customerType.value === 'garden'
+        ? { type: 'garden', memberNo: null, name: 'สวน', sharePct: toNumber(sharePct.value) }
+        : { type: 'general', memberNo: null, name: 'ลูกค้าทั่วไป' },
   )
 
   // ---- weights & amounts ----
@@ -56,7 +61,11 @@ export const useCartStore = defineStore('cart', () => {
   )
   const lineAdditionOf = (uid) => round2(additionRows.value.filter((r) => r.scope === uid).reduce((s, r) => s + r.amount, 0))
   const additionAmount = computed(() => round2(additionRows.value.reduce((s, r) => s + r.amount, 0)))
-  const total = computed(() => round2(subtotal.value + additionAmount.value))
+  // ผลผลิตรวม (รวมเพิ่มราคา) ก่อนหักส่วนของสวน · สวน: ยอดที่ต้องจ่ายลูกจ้าง = ผลผลิต x sharePct% (ปัดเป็นสตางค์ ตรงกับ API)
+  const grossTotal = computed(() => round2(subtotal.value + additionAmount.value))
+  const payable = computed(() => (customerType.value === 'garden' && sharePctValid.value ? round2((grossTotal.value * toNumber(sharePct.value)) / 100) : grossTotal.value))
+  const shareDeduction = computed(() => round2(grossTotal.value - payable.value))
+  const total = computed(() => payable.value) // ยอดที่ต้องจ่ายจริง
 
   function addAddition({ scope, mode, value }) {
     const id = ++additionSeq
@@ -87,7 +96,7 @@ export const useCartStore = defineStore('cart', () => {
       lines.value.forEach((l, i) => { if (l.productId === product.id && l.containerId === container.id) at = i })
       if (at < 0) lines.value.forEach((l, i) => { if (l.productId === product.id) at = i })
       const line = {
-        uid: ++lineSeq, productId: product.id, name: product.name, pricePerKg: Number(product.price),
+        uid: ++lineSeq, productId: product.id, name: product.name, productType: product.productType ?? 'CUP_LUMP', pricePerKg: Number(product.price),
         containerId: container.id, containerLabel: container.short, gross: String(r.gross),
       }
       if (at < 0) lines.value.push(line)
@@ -109,6 +118,8 @@ export const useCartStore = defineStore('cart', () => {
   function reset() {
     clear()
     customerType.value = 'general'
+    sharePct.value = '50'
+    holdStatus.value = 'SAME_DAY'
     memberId.value = null
   }
 
@@ -117,6 +128,7 @@ export const useCartStore = defineStore('cart', () => {
     const order = await orderService.create({
       status,
       customer: customer.value,
+      holdStatus: holdStatus.value,
       items: lines.value.map((l) => ({ productId: l.productId, containerId: l.containerId, gross: toNumber(l.gross) })),
       additions: additionRows.value
         .map((r) => ({
@@ -130,6 +142,7 @@ export const useCartStore = defineStore('cart', () => {
   }
 
   return {
+    holdStatus, sharePct, sharePctValid, grossTotal, shareDeduction,
     lines, customerType, memberId, member, customer, additions, additionRows,
     tareOf, netOf, amountOf, totalNet, subtotal, lineAdditionOf, additionAmount, total, linesOf,
     addAddition, updateAddition, removeAddition,

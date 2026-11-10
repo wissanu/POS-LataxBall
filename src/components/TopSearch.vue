@@ -170,7 +170,7 @@ onBeforeUnmount(() => {
               <span class="av">{{ firstLetter(c.name) }}</span>
               <span class="row__main">
                 <b>{{ c.name }}</b>
-                <small>{{ c.type === 'general' ? 'ลูกค้าทั่วไป (ไม่ใช่ลูกค้าประจำ)' : [c.code, c.phone, c.address].filter(Boolean).join(' · ') }}</small>
+                <small>{{ c.type === 'general' ? 'ลูกค้าทั่วไป (ไม่ใช่ลูกค้าประจำ)' : c.type === 'garden' ? 'สวน (ผลผลิตจากสวนของร้าน)' : [c.code, c.phone, c.address].filter(Boolean).join(' · ') }}</small>
               </span>
               <span class="cnt">{{ c.orderCount }} ใบ</span>
             </button>

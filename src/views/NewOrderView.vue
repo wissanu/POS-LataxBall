@@ -48,6 +48,18 @@ onBeforeUnmount(() => {
 
 // ---- ช่องค้นหาด้านบน: กรองรายการเกรด (ชื่อ / รหัสเกรด / ราคา) ----
 const query = computed(() => normalizeSearch(find.gradeQuery))
+// การ์ดแยกกลุ่มตามประเภทสินค้า (ยางก้อนถ้วย / ขี้ฟอง) — แต่ละกลุ่มมีหัวข้อกำกับ
+const groups = computed(() => {
+  const labels = new Map((board.productTypes ?? []).map((t) => [t.code, t.label]))
+  const order = [...labels.keys()]
+  const by = new Map()
+  for (const p of products.value) {
+    const code = p.productType ?? 'CUP_LUMP'
+    if (!by.has(code)) by.set(code, [])
+    by.get(code).push(p)
+  }
+  return [...by.entries()].sort((a, b) => (order.indexOf(a[0]) + 99) % 99 - (order.indexOf(b[0]) + 99) % 99).map(([code, items]) => ({ code, label: labels.get(code) ?? 'ยางก้อนถ้วย', items }))
+})
 const products = computed(() => {
   const q = query.value
   if (!q) return board.products
@@ -212,7 +224,10 @@ function openDrafts() {
       <p v-else-if="!products.length" class="state">ไม่พบเกรดที่ตรงกับ “{{ find.gradeQuery }}” <button type="button" @click="find.clearGrade()">ล้างคำค้นหา</button></p>
 
       <template v-else>
-        <ProductCard v-for="p in products" :key="p.id" :product="p" :selectable="selecting" :selected="picked.has(p.id)" @select="onCard" />
+        <template v-for="grp in groups" :key="grp.code">
+          <h2 class="grp">{{ grp.label }} <small>{{ new Set(grp.items.map((x) => x.grade)).size }} เกรด · {{ grp.items.length }} ราคา</small></h2>
+          <ProductCard v-for="p in grp.items" :key="p.id" :product="p" :selectable="selecting" :selected="picked.has(p.id)" @select="onCard" />
+        </template>
       </template>
     </div>
   </section>
@@ -249,6 +264,9 @@ h1 { font-size: 20px; font-weight: 700; letter-spacing: -.2px; color: var(--slat
 .quick { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(184px, 1fr)); gap: 14px; align-content: start; padding: 16px 4px 16px 0; }
+.grp { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 8px; margin-top: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--slate-200); font-size: 14px; font-weight: 800; color: var(--slate-800); }
+.grp:first-child { margin-top: 0; }
+.grp small { font-size: 11px; font-weight: 500; color: var(--slate-400); }
 .state { grid-column: 1 / -1; text-align: center; color: var(--slate-500); font-size: 13px; padding: 48px 0; }
 .state--error { color: #dc2626; }
 .state button { color: var(--blue-600); font-weight: 600; margin-left: 8px; }

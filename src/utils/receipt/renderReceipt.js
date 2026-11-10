@@ -59,7 +59,7 @@ function build(order, { copy, printedAt }) {
   row('เลขที่', order.no)
   row('วันที่', stamp(order.createdAt))
   const c = order.customer || {}
-  row('ลูกค้า', `${c.name || '-'}${c.memberNo ? ` (${c.memberNo})` : ''}`)
+  row('ลูกค้า', `${c.name || '-'}${c.memberNo ? ` (${c.memberNo})` : ''}${c.type === 'garden' && order.sharePct ? ` (จ่ายลูกจ้าง ${num(order.sharePct)}%)` : ''}`)
   if (order.cashier) row('ผู้รับซื้อ', order.cashier)
   rule()
 
@@ -82,7 +82,7 @@ function build(order, { copy, printedAt }) {
   row('รวมเป็นเงิน', num(subtotal))
   ;(order.adjustments || []).forEach((a) => row(a.reason || (a.type === 'ADD' ? 'เพิ่มราคา' : 'หักเงิน'), `${a.type === 'ADD' ? '+' : '-'}${num(a.amount)}`, 20, 500, 3))
   rule('solid')
-  ops.push({ k: 'row', left: 'ยอดสุทธิ', right: `${num(order.total)}`, size: 34, weight: 700, rightSize: 40, gap: 2 })
+  ops.push({ k: 'row', left: c.type === 'garden' ? 'ยอดจ่ายลูกจ้างสวน' : 'ยอดสุทธิ', right: `${num(order.total)}`, size: 34, weight: 700, rightSize: 40, gap: 2 })
   center('บาท', 20, 500, 2)
   rule()
   space(4)

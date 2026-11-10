@@ -12,8 +12,6 @@ import { firstLetter } from '@/utils/format'
 const auth = useAuthStore()
 const router = useRouter()
 
-const tabs = ['Order line', 'Table', 'Dishes', 'Delivery', 'Account']
-const activeTab = ref('Table')
 
 // ---- sidebar: 1) รายงานภาพรวม · 3) New Order · 4) Order List · 2) จัดแต่งระบบ, with divider lines (5) between the groups ----
 // Each link shows only if the signed-in user holds its permission (see 03_rbac.sql).
@@ -22,7 +20,9 @@ const menu = [
   { divider: true },
   { to: 'new-order', label: 'New Order', icon: 'plus', perm: ['purchase.create'] },
   { to: 'orders', label: 'Order List', icon: 'clipboard', perm: ['purchase.read'] },
+  { to: 'stock', label: 'ยางรอขาย', icon: 'box', perm: ['transport.read'] },
   { to: 'transport', label: 'การขนส่ง', icon: 'truck', perm: ['transport.read'] },
+  { to: 'bills', label: 'บิล', icon: 'receipt', perm: ['transport.read'] },
   { divider: true },
   { to: 'system', label: 'จัดแต่งระบบ', icon: 'gear', perm: ['user.manage', 'role.manage'] },
 ]
@@ -69,9 +69,6 @@ async function exit() {
     <header class="top">
       <div class="top__left">
         <router-link to="/" class="logo" :aria-label="APP_TITLE"><BrandLogo :size="36" tagline /></router-link>
-        <nav aria-label="Sections">
-          <button v-for="t in tabs" :key="t" type="button" :class="{ on: t === activeTab }" @click="activeTab = t">{{ t }}</button>
-        </nav>
       </div>
       <div class="top__right">
         <TopSearch />
@@ -125,9 +122,6 @@ async function exit() {
 .top__right { gap: 16px; }
 /* กล่องโลโก้กว้างเท่า sidebar (224px) และเริ่มที่ขอบซ้ายของ sidebar (body padding 12px − top padding 24px) → โลโก้อยู่กึ่งกลาง sidebar พอดี */
 .logo { display: flex; align-items: center; justify-content: center; width: 224px; margin-left: -12px; }
-.top nav { display: flex; gap: 28px; }
-.top nav button { font-size: 14px; font-weight: 500; color: var(--slate-500); padding: 2px 0 4px; border-bottom: 2px solid transparent; }
-.top nav button.on { color: var(--blue-600); font-weight: 600; border-color: var(--blue-600); }
 .round { width: 36px; height: 36px; border-radius: 50%; background: var(--glass-strong); display: grid; place-items: center; box-shadow: 0 1px 2px rgba(0, 0, 0, .05); color: var(--slate-600); }
 .badges { position: relative; display: flex; padding-left: 9px; border-left: 1px solid rgba(203, 213, 225, .6); }
 .avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; box-shadow: 0 1px 2px rgba(0, 0, 0, .08); transition: box-shadow .15s; }
@@ -150,5 +144,5 @@ async function exit() {
 .link--on, .link--on:hover { background: var(--blue-600); color: #fff; font-weight: 600; box-shadow: var(--shadow-blue); }
 .exit { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--radius-md); font-size: 12px; font-weight: 500; color: var(--slate-500); border-top: 1px solid rgba(226, 232, 240, .6); margin-top: 17px; padding-top: 25px; }
 .exit:hover { color: #dc2626; }
-@media (max-width: 1100px) { .top nav { display: none; } .side { display: none; } .logo { width: auto; margin-left: 0; justify-content: flex-start; } }
+@media (max-width: 1100px) { .side { display: none; } .logo { width: auto; margin-left: 0; justify-content: flex-start; } }
 </style>

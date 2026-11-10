@@ -11,11 +11,22 @@ import { PAGE_SIZE, RANGES, useOrderStore } from '@/stores/orders'
 import { useToast } from '@/composables/useToast'
 import { getErrorMessage } from '@/services/http'
 import { formatThaiDate, formatThaiStamp } from '@/utils/dates'
+import { formatMoney, formatNumber } from '@/utils/format'
 
 const orders = useOrderStore()
 const auth = useAuthStore()
 const toast = useToast()
 const menuOpen = ref(false)
+
+// แถบยอดรวม: รายละเอียดแยกประเภทลอยขึ้นเมื่อเลื่อนเมาส์ไปที่แถบ (เฉพาะอุปกรณ์ที่มีเมาส์) หรือกดที่แถบเพื่อค้างไว้/ปิด
+const pinned = ref(false)
+const hovering = ref(false)
+let hoverTimer = null
+const canHover = () => typeof window !== 'undefined' && window.matchMedia?.('(hover: hover)').matches
+const detailOpen = computed(() => pinned.value || hovering.value)
+function hoverIn() { if (!canHover()) return; clearTimeout(hoverTimer); hoverTimer = setTimeout(() => { hovering.value = true }, 120) }
+function hoverOut() { clearTimeout(hoverTimer); hoverTimer = setTimeout(() => { hovering.value = false }, 200) }
+onBeforeUnmount(() => clearTimeout(hoverTimer))
 const busyId = ref(null)
 const canCancel = computed(() => auth.can('purchase.cancel')) // ยกเลิกใบที่ยืนยันแล้ว = ผู้จัดการขึ้นไป
 
@@ -182,8 +193,38 @@ const emptyText = computed(() =>
       />
     </div>
 
+    <!-- ยอดรวมของตัวกรองปัจจุบัน (ทุกหน้า) อยู่บรรทัดเดียวกับ "แสดง 1–N จาก N รายการ" เพื่อให้ตารางเห็นได้ 6 แถว
+         รายละเอียดแยกประเภทลอยขึ้นเมื่อเลื่อนเมาส์ไปที่แถบ หรือกดที่แถบเพื่อค้างไว้ -->
     <footer v-if="orders.total > 0" class="foot">
-      <Pagination :page="orders.page" :total-pages="orders.totalPages" :total="orders.total" :page-size="PAGE_SIZE" :disabled="orders.loading" @update:page="orders.goPage" />
+      <Pagination :page="orders.page" :total-pages="orders.totalPages" :total="orders.total" :page-size="PAGE_SIZE" :disabled="orders.loading" @update:page="orders.goPage">
+        <template #middle>
+      <div class="sb" @mouseenter="hoverIn" @mouseleave="hoverOut" @focusin="hovering = true" @focusout="hoverOut">
+            <div v-if="detailOpen" id="sum-detail" class="sb__pop" role="region" aria-label="ยอดรวมแยกประเภทสินค้า">
+              <p class="sb__ctx">{{ orders.hasSearch ? 'ผลการค้นหา' : windowText }}{{ orders.statusFilter !== 'all' ? ` · ${filters.find((f) => f.v === orders.statusFilter)?.label}` : '' }} <span v-if="orders.summary.excluded">· ไม่รวม {{ orders.summary.excluded }} ใบ (ยกเลิก / ฉบับร่าง)</span></p>
+              <div class="sb__types">
+                <div v-for="t in orders.summary.byProduct" :key="t.productType" class="type" :class="{ 'type--foam': t.productType === 'FOAM', 'type--zero': !t.bills }">
+                  <span class="type__name">{{ t.label }}<small>{{ t.bills }} ใบ</small></span>
+                  <span class="type__kg">{{ formatNumber(t.netKg) }} <i>กก.</i></span>
+                  <b class="type__amt">{{ formatMoney(t.amount) }}</b>
+                </div>
+                <div v-if="orders.summary.adjustment" class="type type--adj" title="เพิ่มราคา และส่วนที่หักของสวน ไม่ผูกกับประเภทสินค้า">
+                  <span class="type__name">เพิ่มราคา / หักส่วนของสวน<small>รวมในยอดเงินรวม</small></span>
+                  <b class="type__amt">{{ orders.summary.adjustment > 0 ? '+' : '−' }}{{ formatMoney(Math.abs(orders.summary.adjustment)) }}</b>
+                </div>
+              </div>
+            </div>
+            <div class="sb__bar">
+              <button type="button" class="sb__toggle" :aria-expanded="detailOpen" aria-controls="sum-detail" @click="pinned = !pinned">
+                <span class="sb__chev" :class="{ up: detailOpen }" aria-hidden="true">▴</span> ยอดรวมตามตัวกรอง
+              </button>
+              <span class="sb__item">{{ orders.summary.bills }} <i>ใบ</i></span>
+              <span class="sb__item">{{ formatNumber(orders.summary.netKg) }} <i>กก.</i></span>
+              <span v-for="t in orders.summary.byProduct" :key="t.productType" class="sb__chip" :class="{ 'sb__chip--foam': t.productType === 'FOAM' }">{{ t.label }} <b>{{ formatMoney(t.amount) }}</b></span>
+              <span class="sb__total"><small>ยอดเงินรวม</small> {{ formatMoney(orders.summary.total) }}</span>
+            </div>
+          </div>
+        </template>
+      </Pagination>
     </footer>
 
     <ReceiptModal v-model="receiptOpen" :order="receiptOrder" @printed="afterReceipt" @skip="afterReceipt" />
@@ -245,7 +286,24 @@ h1 { font-size: 24px; font-weight: 800; letter-spacing: -.4px; color: var(--slat
 .scroll { flex: 1; min-height: 0; overflow: auto; padding: 2px 2px 8px; }
 .state { text-align: center; color: var(--slate-500); font-size: 13px; line-height: 1.8; padding: 64px 0; }
 .state small { font-size: 12px; color: var(--slate-400); }
-.foot { flex: none; margin-top: 8px; padding-top: 12px; border-top: 1px solid rgba(226, 232, 240, .8); }
+.sb { flex: none; }
+.sb__bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; padding: 4px 12px; min-height: 36px; border-radius: var(--radius-md); background: var(--blue-50); border: 1px solid var(--blue-100); }
+.sb__toggle { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; font-size: 12px; font-weight: 800; color: var(--blue-700); }
+.sb__chev { display: inline-block; font-size: 11px; transition: transform .15s; } .sb__chev.up { transform: rotate(180deg); }
+.sb__item { font-size: 13px; font-weight: 700; color: var(--slate-800); font-variant-numeric: tabular-nums; } .sb__item i { font-style: normal; font-size: 11px; font-weight: 500; color: var(--slate-400); }
+.sb__chip { padding: 2px 10px; border-radius: 9999px; background: #fff; border: 1px solid var(--blue-100); font-size: 11px; font-weight: 600; color: var(--blue-700); white-space: nowrap; font-variant-numeric: tabular-nums; } .sb__chip b { font-weight: 800; color: var(--slate-900); }
+.sb__chip--foam { border-color: #fcd34d; color: var(--amber-700); }
+.sb__total { font-size: 18px; font-weight: 800; letter-spacing: -.3px; color: var(--blue-700); font-variant-numeric: tabular-nums; } .sb__total small { font-size: 11px; font-weight: 600; letter-spacing: 0; color: var(--slate-500); margin-right: 4px; }
+.sb__pop { position: absolute; left: 0; right: 0; bottom: calc(100% + 4px); z-index: 30; padding: 10px 12px 12px; border-radius: var(--radius-md); background: #fff; border: 1px solid var(--blue-100); box-shadow: 0 12px 32px rgba(15, 23, 42, .16); }
+.sb__ctx { margin-bottom: 8px; font-size: 11px; color: var(--slate-500); }
+.sb__types { display: flex; flex-wrap: wrap; gap: 8px; }
+.type { flex: 1 1 240px; display: grid; grid-template-columns: 1fr auto; align-items: baseline; gap: 0 12px; padding: 8px 12px; border-radius: 10px; background: var(--slate-50); border: 1px solid var(--slate-100); border-left: 4px solid #2563eb; }
+.type--foam { border-left-color: #d97706; } .type--adj { border-left-color: var(--slate-300); flex-grow: 0; } .type--zero { opacity: .55; }
+.type__name { grid-row: span 2; display: flex; flex-direction: column; font-size: 13px; font-weight: 800; color: var(--slate-800); }
+.type__name small { font-size: 11px; font-weight: 500; color: var(--slate-500); }
+.type__kg { text-align: right; font-size: 12px; color: var(--slate-600); font-variant-numeric: tabular-nums; } .type__kg i { font-style: normal; font-size: 10px; color: var(--slate-400); }
+.type__amt { text-align: right; font-size: 16px; font-weight: 800; color: var(--slate-900); font-variant-numeric: tabular-nums; }
+.foot { position: relative; flex: none; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(226, 232, 240, .8); }
 .confirm { font-size: 13px; line-height: 1.7; color: var(--slate-700); }
 @media (max-width: 700px) {
   .orders { padding: 16px; }

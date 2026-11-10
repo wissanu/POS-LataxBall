@@ -33,6 +33,7 @@ const go = (n) => { if (!props.disabled && n >= 1 && n <= props.totalPages && n 
 <template>
   <nav class="pager" aria-label="เลือกหน้า">
     <p class="pager__info">แสดง <b>{{ from }}–{{ to }}</b> จาก <b>{{ total }}</b> รายการ</p>
+    <div v-if="$slots.middle" class="pager__mid"><slot name="middle" /></div>
     <div class="pager__nav">
       <button type="button" class="pg pg--arrow" :disabled="disabled || page <= 1" aria-label="หน้าก่อนหน้า" @click="go(page - 1)"><AppIcon name="chevron-left" :size="14" /></button>
       <template v-for="p in pages" :key="p.key">
@@ -46,6 +47,7 @@ const go = (n) => { if (!props.disabled && n >= 1 && n <= props.totalPages && n 
 
 <style scoped>
 .pager { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.pager__mid { flex: 1 1 360px; min-width: 0; }
 .pager__info { font-size: 12px; color: var(--slate-500); }
 .pager__info b { color: var(--slate-800); font-weight: 700; }
 .pager__nav { display: flex; align-items: center; gap: 6px; }

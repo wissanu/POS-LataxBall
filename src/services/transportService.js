@@ -2,11 +2,13 @@ import { http } from './http'
 
 // การขนส่งยางก้อนถ้วยไปโรงงาน: 1 แถว = 1 เที่ยว
 // Trip = { id, date: 'YYYY-MM-DD', tripNo, shippedKg, departAt: 'HH:mm', billAt: 'HH:mm', factoryNetKg, note,
+//          factoryPricePerKg: number|null, factoryAmount: number|null   (ยอดเงินตามบิลโรงงาน — ใหม่ · ไม่บังคับ · null = ยังไม่กรอก),
+//          productType: 'CUP_LUMP'|'FOAM' (ค่าเริ่มต้น CUP_LUMP), stockKg: number|null (น้ำหนักตอนซื้อที่ตัดสต็อก · null = เท่ากับ shippedKg),
 //          durationMin, lossKg, lossPct, lossPctPerHour, createdAt }   (ฟิลด์ที่คำนวณ server เป็นผู้ส่งกลับ — ใช้สูตรเดียวกับ utils/transport.js)
 //
 // GET    /transports?from=YYYY-MM-DD&to=YYYY-MM-DD&page=&pageSize=
-//          -> { page, pageSize, total, totalPages, summary: { trips, shippedKg, factoryNetKg, lossKg, lossPct }, data: Trip[] }
-// POST   /transports   { date, shippedKg, departAt, billAt, factoryNetKg, note? }  -> Trip   (tripNo รันต่อวันโดย server)
+//          -> { page, pageSize, total, totalPages, summary: { trips, shippedKg, factoryNetKg, factoryAmount, lossKg, lossPct }, data: Trip[] }
+// POST   /transports   { date, shippedKg, departAt, billAt, factoryNetKg, factoryPricePerKg?, factoryAmount?, productType?, stockKg?, note? }  -> Trip   (tripNo รันต่อวันโดย server)
 // PATCH  /transports/:id  (ฟิลด์เดียวกัน บางส่วนได้)                                -> Trip
 // DELETE /transports/:id                                                            -> 204
 //
@@ -16,8 +18,12 @@ import { http } from './http'
 //               summary: { MORNING: { trips, shippedKg, lossKg, lossPct|null }, AFTERNOON: { ... } },
 //               otherTrips }   // เที่ยวที่ออกนอกสองช่วง (เช่น 12:01-12:59 หรือหลัง 18:00) ไม่อยู่ในกราฟ
 // ช่วงเวลานับจาก "เวลาออกเดินทาง" · สิทธิ์: transport.read (ดู) / transport.create (เพิ่ม แก้ไข ลบ) = MANAGER และ ADMIN เท่านั้น
+// GET    /transports/summary?ids=a,b,c   หรือ   ?from=YYYY-MM-DDTHH:mm&to=YYYY-MM-DDTHH:mm   (popup สรุปผล: ที่ติ๊กเลือก / ช่วงวัน-เวลาออกเดินทาง)
+//          -> { mode, range, trips, firstDate, lastDate, shippedKg, factoryNetKg, lossKg, lossPct (ถ่วงน้ำหนัก), avgLossPct (เฉลี่ยรายเที่ยว),
+//               avgLossKgPerTrip, avgShippedKgPerTrip, avgDurationMin, avgLossPctPerHour, maxTrip, minTrip, windows: [{ key, label, trips, shippedKg, lossKg, lossPct }] }
 export const transportService = {
   report: (params) => http.get('/transports/report', { params }).then((r) => r.data),
+  summary: (params) => http.get('/transports/summary', { params }).then((r) => r.data),
   list: (params) => http.get('/transports', { params }).then((r) => r.data),
   create: (payload) => http.post('/transports', payload).then((r) => r.data),
   update: (id, payload) => http.patch(`/transports/${id}`, payload).then((r) => r.data),
