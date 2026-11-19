@@ -6,17 +6,32 @@ import BaseModal from '@/components/BaseModal.vue'
 import OrdersTable from '@/components/OrdersTable.vue'
 import Pagination from '@/components/Pagination.vue'
 import ReceiptModal from '@/components/ReceiptModal.vue'
+import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
-import { PAGE_SIZE, RANGES, useOrderStore } from '@/stores/orders'
+import { PAGE_SIZE, RANGES, SALE_FILTERS, useOrderStore } from '@/stores/orders'
 import { useToast } from '@/composables/useToast'
 import { getErrorMessage } from '@/services/http'
-import { formatThaiDate, formatThaiStamp } from '@/utils/dates'
+import { addDays, bangkokDate, formatThaiDate, formatThaiStamp } from '@/utils/dates'
 import { formatMoney, formatNumber } from '@/utils/format'
 
 const orders = useOrderStore()
 const auth = useAuthStore()
 const toast = useToast()
 const menuOpen = ref(false)
+const router = useRouter()
+
+// ---- ทำบิลย้อนหลัง: เลือกวัน แล้วไปหน้า New Order ที่ใช้ราคา/ลงวันที่ของวันนั้น ----
+const backOpen = ref(false)
+const backDate = ref('')
+const backMax = computed(() => addDays(bangkokDate(), -1))
+const backMin = computed(() => addDays(bangkokDate(), -366))
+const canCreate = computed(() => auth.can('purchase.create'))
+function openBack() { backDate.value = backMax.value; backOpen.value = true }
+function goBack() {
+  if (!backDate.value || backDate.value > backMax.value || backDate.value < backMin.value) return toast.error('เลือกวันที่ผ่านมาแล้ว (ย้อนหลังได้ไม่เกิน 366 วัน)')
+  backOpen.value = false
+  router.push({ name: 'new-order', query: { date: backDate.value } })
+}
 
 // แถบยอดรวม: รายละเอียดแยกประเภทลอยขึ้นเมื่อเลื่อนเมาส์ไปที่แถบ (เฉพาะอุปกรณ์ที่มีเมาส์) หรือกดที่แถบเพื่อค้างไว้/ปิด
 const pinned = ref(false)
@@ -29,6 +44,9 @@ function hoverOut() { clearTimeout(hoverTimer); hoverTimer = setTimeout(() => { 
 onBeforeUnmount(() => clearTimeout(hoverTimer))
 const busyId = ref(null)
 const canCancel = computed(() => auth.can('purchase.cancel')) // ยกเลิกใบที่ยืนยันแล้ว = ผู้จัดการขึ้นไป
+
+// ชื่อในตารางสรุป: ลูกค้าประจำ = ชื่อในทะเบียน · ทั่วไป/สวน = ชื่อที่กรอก (ไม่กรอก = ไม่ระบุชื่อ)
+const custLabel = (c) => (c.type === 'member' ? c.name : c.name || (c.type === 'garden' ? 'สวน (ไม่ระบุชื่อ)' : 'ลูกค้าทั่วไป (ไม่ระบุชื่อ)'))
 
 const filters = [
   { v: 'all', label: 'All orders' },
@@ -50,7 +68,7 @@ onBeforeUnmount(() => {
 // ไม่แสดง error ในพื้นที่รายการ — แจ้งด้วย toast ครั้งเดียวเมื่อมีปัญหา
 watch(() => orders.error, (m) => m && toast.error(m))
 
-// ---- ช่วงเวลา: วันนี้ / 7 วัน / 30 วัน (ไม่มี "ทุกวัน" แบบไม่จำกัด · ระหว่างค้นหาจะค้นข้ามทุกวันเอง จึงล็อกไว้) ----
+// ---- ช่วงเวลา: วันนี้ / เดือนนี้ (ไม่มี "ทุกวัน" แบบไม่จำกัด · ระหว่างค้นหาจะค้นข้ามทุกวันเอง จึงล็อกไว้) ----
 const windowText = computed(() => {
   const { windowFrom: f, windowTo: t } = orders
   if (!f || !t) return ''
@@ -62,7 +80,8 @@ const tags = computed(() => {
   const s = orders.search
   const out = []
   if (s.no) out.push({ key: 'no', label: `เลขที่ ${s.no}` })
-  if (s.customer) out.push({ key: 'customer', label: `ลูกค้า: ${s.customer.name}${s.customer.code ? ` (${s.customer.code})` : ''}` })
+  if (s.customer) out.push({ key: 'customer', label: s.customer.named ? `ชื่อ: ${s.customer.name}` : `ลูกค้า: ${s.customer.name}${s.customer.code ? ` (${s.customer.code})` : ''}` })
+  if (orders.saleFilter !== 'all') out.push({ key: 'sale', label: `การขาย: ${SALE_FILTERS.find((f) => f.v === orders.saleFilter)?.label.replace(' (รอจัดส่ง + กำลังจัดส่ง)', '')}` })
   if (s.from || s.to) out.push({ key: 'range', label: `ช่วง: ${s.from ? formatThaiStamp(s.from) : 'ตั้งแต่เริ่มต้น'} – ${s.to ? formatThaiStamp(s.to) : 'ปัจจุบัน'}` })
   return out
 })
@@ -140,7 +159,7 @@ function answerPay() {
 
 const emptyText = computed(() =>
   orders.hasSearch ? 'ไม่พบใบรับซื้อที่ตรงกับการค้นหา'
-  : orders.statusFilter !== 'all' ? 'ไม่มีรายการในสถานะนี้'
+  : orders.statusFilter !== 'all' || orders.saleFilter !== 'all' ? 'ไม่มีรายการในสถานะนี้'
   : orders.range === 'today' ? 'ยังไม่ได้รับรายการของวันนี้' : 'ยังไม่มีรายการรับซื้อในช่วงนี้',
 )
 </script>
@@ -153,7 +172,8 @@ const emptyText = computed(() =>
         <p>รับข้อมูล รายการรับซื้อสินค้า แบบต่อเนื่อง<template v-if="!orders.hasSearch && windowText"> · แสดง {{ windowText }}</template></p>
       </div>
       <div class="tools">
-        <!-- ช่วงเวลา: วันนี้ / 7 วัน / 30 วัน — อยากดูย้อนหลังกว่านั้นให้ใช้ช่องค้นหาด้านบน (เลขที่ใบ / ลูกค้า / ช่วงวันเวลา) -->
+        <button v-if="canCreate" type="button" class="filter__btn" @click="openBack"><AppIcon name="clock" :size="14" /> ทำบิลย้อนหลัง</button>
+        <!-- ช่วงเวลา: วันนี้ / เดือนนี้ — อยากดูย้อนหลังกว่านั้นให้ใช้ช่องค้นหาด้านบน (เลขที่ใบ / ลูกค้า / ช่วงวันเวลา) -->
         <div class="range" role="radiogroup" aria-label="ช่วงเวลา" :title="orders.hasSearch ? 'กำลังค้นหา: ค้นข้ามทุกวัน' : 'อยากดูย้อนหลังกว่านี้ ให้ค้นหาที่ช่องค้นหาด้านบน'">
           <button
             v-for="r in RANGES" :key="r.v" type="button" role="radio" class="range__btn" :class="{ on: !orders.hasSearch && orders.range === r.v }"
@@ -163,18 +183,32 @@ const emptyText = computed(() =>
         <div class="filter">
           <button type="button" class="filter__btn" :aria-expanded="menuOpen" @click="menuOpen = !menuOpen"><AppIcon name="filter" :size="14" /> Filter</button>
           <ul v-if="menuOpen" class="filter__menu" role="menu">
+            <li class="filter__grp">สถานะใบ</li>
             <li v-for="f in filters" :key="f.v">
               <button type="button" role="menuitemradio" :aria-checked="orders.statusFilter === f.v" :class="{ on: orders.statusFilter === f.v }" @click="(orders.setStatusFilter(f.v), (menuOpen = false))">{{ f.label }}</button>
+            </li>
+            <li class="filter__grp">สถานะการขายให้โรงงาน</li>
+            <li v-for="f in SALE_FILTERS" :key="f.v">
+              <button type="button" role="menuitemradio" :aria-checked="orders.saleFilter === f.v" :class="{ on: orders.saleFilter === f.v }" @click="(orders.setSaleFilter(f.v), (menuOpen = false))">{{ f.label }}</button>
             </li>
           </ul>
         </div>
       </div>
     </header>
 
+    <BaseModal v-model="backOpen" title="ทำบิลย้อนหลัง" width="420px">
+      <p class="bk__txt">เลือกวันที่ต้องการลงบิล ระบบจะไปหน้า New Order ของวันนั้น (ใช้ราคารับซื้อของวันนั้น · เลขที่และวันที่ของบิลเป็นของวันนั้น)</p>
+      <label class="bk__f"><span>วันที่ลงบิล</span><input v-model="backDate" type="date" :min="backMin" :max="backMax" /></label>
+      <template #footer>
+        <BaseButton variant="soft" @click="backOpen = false">ยกเลิก</BaseButton>
+        <BaseButton @click="goBack">ไปทำบิล</BaseButton>
+      </template>
+    </BaseModal>
+
     <!-- ตัวกรองจากช่องค้นหา -->
-    <div v-if="orders.hasSearch" class="active" aria-label="เงื่อนไขการค้นหา">
-      <span class="active__lead"><AppIcon name="search" :size="13" /> ผลการค้นหา (ทุกวัน) · {{ orders.total }} ใบ</span>
-      <button v-for="t in tags" :key="t.key" type="button" class="tag" :title="`ลบเงื่อนไข: ${t.label}`" @click="orders.removeSearch(t.key)">{{ t.label }} <AppIcon name="x" :size="12" /></button>
+    <div v-if="orders.hasSearch || orders.saleFilter !== 'all'" class="active" aria-label="เงื่อนไขการค้นหา">
+      <span class="active__lead"><AppIcon name="search" :size="13" /> {{ orders.hasSearch ? 'ผลการค้นหา (ทุกวัน)' : 'ตัวกรอง' }} · {{ orders.total }} ใบ</span>
+      <button v-for="t in tags" :key="t.key" type="button" class="tag" :title="`ลบเงื่อนไข: ${t.label}`" @click="t.key === 'sale' ? orders.setSaleFilter('all') : orders.removeSearch(t.key)">{{ t.label }} <AppIcon name="x" :size="12" /></button>
       <button type="button" class="active__clear" @click="orders.clearSearch()">ล้างทั้งหมด</button>
     </div>
 
@@ -200,7 +234,7 @@ const emptyText = computed(() =>
         <template #middle>
       <div class="sb" @mouseenter="hoverIn" @mouseleave="hoverOut" @focusin="hovering = true" @focusout="hoverOut">
             <div v-if="detailOpen" id="sum-detail" class="sb__pop" role="region" aria-label="ยอดรวมแยกประเภทสินค้า">
-              <p class="sb__ctx">{{ orders.hasSearch ? 'ผลการค้นหา' : windowText }}{{ orders.statusFilter !== 'all' ? ` · ${filters.find((f) => f.v === orders.statusFilter)?.label}` : '' }} <span v-if="orders.summary.excluded">· ไม่รวม {{ orders.summary.excluded }} ใบ (ยกเลิก / ฉบับร่าง)</span></p>
+              <p class="sb__ctx">{{ orders.hasSearch ? 'ผลการค้นหา' : windowText }}{{ orders.statusFilter !== 'all' ? ` · ${filters.find((f) => f.v === orders.statusFilter)?.label}` : '' }}{{ orders.saleFilter !== 'all' ? ` · ${SALE_FILTERS.find((f) => f.v === orders.saleFilter)?.label}` : '' }} <span v-if="orders.summary.excluded">· ไม่รวม {{ orders.summary.excluded }} ใบ (ยกเลิก / ฉบับร่าง)</span></p>
               <div class="sb__types">
                 <div v-for="t in orders.summary.byProduct" :key="t.productType" class="type" :class="{ 'type--foam': t.productType === 'FOAM', 'type--zero': !t.bills }">
                   <span class="type__name">{{ t.label }}<small>{{ t.bills }} ใบ</small></span>
@@ -211,6 +245,24 @@ const emptyText = computed(() =>
                   <span class="type__name">เพิ่มราคา / หักส่วนของสวน<small>รวมในยอดเงินรวม</small></span>
                   <b class="type__amt">{{ orders.summary.adjustment > 0 ? '+' : '−' }}{{ formatMoney(Math.abs(orders.summary.adjustment)) }}</b>
                 </div>
+              </div>
+              <div v-if="orders.summary.byCustomer?.length" class="who">
+                <p class="who__h">แยกตามชื่อลูกค้า <small>{{ orders.summary.customerCount }} ราย · เรียงตามเงินรับซื้อ</small></p>
+                <div class="who__scroll">
+                  <table>
+                    <thead><tr><th>ชื่อ</th><th class="r">ใบ</th><th class="r">น้ำหนัก (กก.)</th><th class="r">ราคาเฉลี่ย/กก.</th><th class="r">เงินรับซื้อ (บาท)</th></tr></thead>
+                    <tbody>
+                      <tr v-for="(c, i) in orders.summary.byCustomer" :key="i" :class="{ 'who--blank': c.type !== 'member' && !c.name }">
+                        <td><b>{{ custLabel(c) }}</b><small v-if="c.type === 'member'">{{ c.memberNo }}</small><small v-else>{{ c.type === 'garden' ? 'สวน' : 'ลูกค้าทั่วไป' }}</small></td>
+                        <td class="r">{{ c.bills }}</td>
+                        <td class="r">{{ formatNumber(c.netKg) }}</td>
+                        <td class="r">{{ formatNumber(c.avgPrice) }}</td>
+                        <td class="r"><b>{{ formatMoney(c.amount) }}</b></td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+                <p v-if="orders.summary.customerCount > orders.summary.byCustomer.length" class="who__more">แสดง {{ orders.summary.byCustomer.length }} รายแรกจาก {{ orders.summary.customerCount }} ราย</p>
               </div>
             </div>
             <div class="sb__bar">
@@ -310,4 +362,18 @@ h1 { font-size: 24px; font-weight: 800; letter-spacing: -.4px; color: var(--slat
   .head { flex-wrap: wrap; }
   h1 { font-size: 21px; }
 }
+.bk__txt { font-size: 13px; line-height: 1.7; color: var(--slate-600); margin-bottom: 12px; }
+.bk__f { display: flex; flex-direction: column; gap: 6px; font-size: 13px; font-weight: 600; color: var(--slate-800); }
+.bk__f input { height: 38px; padding: 0 10px; border: 1px solid var(--slate-200); border-radius: var(--radius-md); font: inherit; font-size: 13px; }
+.filter__grp { padding: 6px 10px 2px; font-size: 10.5px; font-weight: 800; letter-spacing: .3px; color: var(--slate-400); }
+.filter__grp:not(:first-child) { margin-top: 4px; border-top: 1px solid var(--slate-100); padding-top: 8px; }
+.filter__menu { min-width: 250px; }
+.who { margin-top: 10px; padding-top: 8px; border-top: 1px dashed var(--slate-200); }
+.who__h { margin-bottom: 6px; font-size: 12px; font-weight: 800; color: var(--slate-800); } .who__h small { font-weight: 500; color: var(--slate-500); margin-left: 6px; }
+.who__scroll { max-height: 190px; overflow: auto; }
+.who table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
+.who th { position: sticky; top: 0; background: #fff; text-align: left; font-size: 10.5px; font-weight: 700; color: var(--slate-500); padding: 3px 8px; }
+.who td { padding: 5px 8px; border-top: 1px solid var(--slate-100); } .who td small { display: block; font-size: 10.5px; color: var(--slate-400); }
+.who .r { text-align: right !important; white-space: nowrap; } .who--blank b { color: var(--slate-500); font-weight: 600; }
+.who__more { margin-top: 4px; font-size: 11px; color: var(--slate-500); }
 </style>

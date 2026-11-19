@@ -6,15 +6,26 @@ import { getErrorMessage } from '@/services/http'
 export const PAGE_SIZE = 20 // 20 แถวต่อหน้า (server ตัดที่ 50)
 export const RANGES = [
   { v: 'today', label: 'วันนี้' },
-  { v: '7d', label: '7 วัน' },
-  { v: '30d', label: '30 วัน' },
+  { v: 'month', label: 'เดือนนี้' },
+]
+
+// สถานะการขายให้โรงงาน (ใบที่ยืนยันแล้ว): รอจัดส่ง → กำลังจัดส่ง (อยู่ในฉบับร่างเที่ยวขนส่ง) → ขายเรียบร้อยแล้ว
+export const SALE_STATES = [
+  { v: 'waiting', label: 'รอจัดส่ง', icon: 'clock' },
+  { v: 'shipping', label: 'กำลังจัดส่ง', icon: 'truck' },
+  { v: 'sold', label: 'ขายเรียบร้อยแล้ว', icon: 'check' },
+]
+export const SALE_FILTERS = [
+  { v: 'all', label: 'ทุกสถานะการขาย' },
+  { v: 'unsold', label: 'ยังไม่ขาย (รอจัดส่ง + กำลังจัดส่ง)' },
+  ...SALE_STATES.map(({ v, label }) => ({ v, label })),
 ]
 
 const emptySearch = () => ({ no: '', customer: null, from: '', to: '' })
 
 /**
  * รายการรับซื้อ (หน้า Order List)
- *  - ไม่เคยดึง "ทุกวัน" ทั้งหมดอีกแล้ว: ค่าเริ่มต้น "วันนี้" · เลือกดู 7 วัน / 30 วันล่าสุดได้ (range)
+ *  - ไม่เคยดึง "ทุกวัน" ทั้งหมดอีกแล้ว: ค่าเริ่มต้น "วันนี้" · เลือกดู "เดือนนี้" ได้ (range)
  *  - แบ่งหน้าและกรองสถานะที่ server (หน้าละ 20 แถว)
  *  - ค้นหา (เลขที่ใบ / ลูกค้า / ช่วงวันเวลา) = ค้นข้ามทุกวันได้เสมอ ไม่ติดช่วงข้างบน (แคบด้วยเงื่อนไข + แบ่งหน้า + index ที่ server)
  */
@@ -24,7 +35,8 @@ export const useOrderStore = defineStore('orders', () => {
   const loading = ref(false)
   const error = ref('')
   const statusFilter = ref('all')
-  const range = ref('today') // 'today' | '7d' | '30d'
+  const saleFilter = ref('all') // 'all' | 'unsold' | 'waiting' | 'shipping' | 'sold'
+  const range = ref('today') // 'today' | 'month'
   const windowFrom = ref('') // ช่วงวันที่ที่ server ใช้จริงตอนไม่ค้นหา (YYYY-MM-DD)
   const windowTo = ref('')
   const page = ref(1)
@@ -41,7 +53,9 @@ export const useOrderStore = defineStore('orders', () => {
     if (!hasSearch.value) p.range = range.value
     if (statusFilter.value !== 'all') p.status = statusFilter.value
     if (s.no) p.q = s.no
-    if (s.customer) p.customerId = s.customer.id
+    if (s.customer?.named) p.customerName = s.customer.name // ชื่อที่กรอกตอนรับซื้อ (ลูกค้าทั่วไป/สวน)
+    else if (s.customer) p.customerId = s.customer.id
+    if (saleFilter.value !== 'all') p.sale = saleFilter.value
     if (s.from) p.from = s.from
     if (s.to) p.to = s.to
     return p
@@ -89,6 +103,11 @@ export const useOrderStore = defineStore('orders', () => {
     page.value = 1
     load()
   }
+  function setSaleFilter(v) {
+    saleFilter.value = SALE_FILTERS.some((f) => f.v === v) ? v : 'all'
+    page.value = 1
+    load()
+  }
   /** patch = { no?, customer?, from?, to? } */
   function applySearch(patch) {
     search.value = { ...search.value, ...patch }
@@ -107,6 +126,7 @@ export const useOrderStore = defineStore('orders', () => {
   }
   function clearSearch() {
     search.value = emptySearch()
+    saleFilter.value = 'all'
     page.value = 1
     load()
   }
@@ -114,6 +134,7 @@ export const useOrderStore = defineStore('orders', () => {
   function resetView() {
     range.value = 'today'
     page.value = 1
+    saleFilter.value = 'all'
     search.value = emptySearch()
   }
 
@@ -142,7 +163,7 @@ export const useOrderStore = defineStore('orders', () => {
   }
 
   return {
-    list, queue, loading, error, statusFilter, range, windowFrom, windowTo, page, total, totalPages, summary, search, hasSearch,
-    load, goPage, setRange, setStatusFilter, applySearch, removeSearch, clearSearch, resetView, setStatus, startPolling, stopPolling,
+    list, queue, loading, error, statusFilter, saleFilter, range, windowFrom, windowTo, page, total, totalPages, summary, search, hasSearch,
+    load, goPage, setRange, setStatusFilter, setSaleFilter, applySearch, removeSearch, clearSearch, resetView, setStatus, startPolling, stopPolling,
   }
 })

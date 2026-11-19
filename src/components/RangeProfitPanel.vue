@@ -5,23 +5,20 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { financeService } from '@/services/financeService'
 import { getErrorMessage } from '@/services/http'
-import { addDays, bangkokDate, formatThaiDate } from '@/utils/dates'
+import { bangkokDate, formatThaiDate, monthStart } from '@/utils/dates'
 import { productLabel } from '@/utils/finance'
 import { formatKg, formatMoney, formatNumber } from '@/utils/format'
 
 const today = bangkokDate()
 const PRESETS = [
   { v: 'today', label: 'วันนี้', from: () => today, to: () => today },
-  { v: 'yesterday', label: 'เมื่อวาน', from: () => addDays(today, -1), to: () => addDays(today, -1) },
-  { v: '7d', label: '7 วัน', from: () => addDays(today, -6), to: () => today },
-  { v: '30d', label: '30 วัน', from: () => addDays(today, -29), to: () => today },
+  { v: 'month', label: 'เดือนนี้', from: () => monthStart(today), to: () => today },
 ]
-const preset = ref('7d')
-const range = reactive({ from: addDays(today, -6), to: today })
+const preset = ref('month')
+const range = reactive({ from: monthStart(today), to: today })
 const data = ref(null)
 const loading = ref(false)
 const error = ref('')
-const showLots = ref(false)
 let req = 0
 
 function pick(p) {
@@ -53,6 +50,14 @@ const expense = computed(() => (s.value ? s.value.labor + s.value.transport + s.
 const hasBill = computed(() => (s.value?.billTrips ?? 0) > 0)
 const profitTone = computed(() => (hasBill.value && s.value.profit < 0 ? 'loss' : hasBill.value ? 'net' : 'wait'))
 const periodText = computed(() => (range.from === range.to ? formatThaiDate(range.from) : `${formatThaiDate(range.from)} – ${formatThaiDate(range.to)}`))
+// % สูญเสียน้ำของเที่ยว = (ส่ง − โรงงานชั่งได้) ÷ ส่ง · รวม = ถ่วงน้ำหนักทุกเที่ยวในช่วง
+const lossPct = (t) => (t.shippedKg > 0 ? ((t.shippedKg - t.factoryNetKg) / t.shippedKg) * 100 : 0)
+const lossTone = (t) => (lossPct(t) > 0 ? 'lossy' : '')
+const totalLoss = computed(() => {
+  const ts = data.value?.trips ?? []
+  const shipped = ts.reduce((a, t) => a + t.shippedKg, 0)
+  return shipped > 0 ? ((shipped - ts.reduce((a, t) => a + t.factoryNetKg, 0)) / shipped) * 100 : null
+})
 const nightsText = (n) => (n == null ? '–' : n < 0.05 ? 'ซื้อ-ขายวันเดียวกัน' : `${formatNumber(n)} คืน`)
 const dayShort = new Intl.DateTimeFormat('th-TH', { day: 'numeric', month: 'short' })
 const srcText = (x) => `${dayShort.format(new Date(`${x.date}T00:00:00`))} · ${formatNumber(x.kg)} กก.`
@@ -76,27 +81,27 @@ const srcText = (x) => `${dayShort.format(new Date(`${x.date}T00:00:00`))} · ${
     <div v-if="s" class="rp__body" :class="{ busy: loading }">
       <!-- สรุปตัวเลข -->
       <div class="cards">
-        <div class="c c--buy"><small>ซื้อยางเข้าในช่วงนี้</small><b>{{ formatMoney(s.purchaseTotal) }}</b><span>{{ s.bills }} ใบ · {{ formatKg(s.purchaseKg) }}</span></div>
+        <div class="c c--buy"><small>ราคารับซื้อทั้งหมด</small><b>{{ formatMoney(s.purchaseTotal) }}</b><span>{{ s.bills }} ใบ · {{ formatKg(s.purchaseKg) }}</span></div>
         <div class="c c--in"><small>รายรับ (บิลโรงงาน)</small><b>{{ hasBill ? formatMoney(s.revenue) : '—' }}</b><span>{{ s.billTrips }}/{{ s.trips }} เที่ยวมียอดบิล · ส่ง {{ formatKg(s.shippedKg) }}</span></div>
         <div class="c c--cogs"><small>ต้นทุนยางที่ขายไป</small><b>{{ formatMoney(s.cogs) }}</b><span>ตัดจากยางที่ซื้อเก่าสุดก่อน</span></div>
         <div class="c c--exp"><small>ค่าใช้จ่ายอื่น</small><b>{{ formatMoney(expense) }}</b><span>คนงาน {{ formatMoney(s.labor) }} · ขนส่ง {{ formatMoney(s.transport) }} · อื่น ๆ {{ formatMoney(s.other) }}</span></div>
         <div class="c c--net" :class="`c--${profitTone}`"><small>กำไรสุทธิ ({{ periodText }})</small><b>{{ hasBill ? formatMoney(s.profit) : '—' }}</b><span>เทียบแบบเงินสด (รายรับ − ซื้อยาง − ค่าใช้จ่าย) {{ hasBill ? formatMoney(s.cashProfit) : '—' }}</span></div>
-        <div class="c c--stock"><small>ยางค้างสต็อก ณ {{ formatThaiDate(range.to) }}</small><b>{{ formatKg(data.stock.kg) }}</b><span>ต้นทุน {{ formatMoney(data.stock.value) }}<template v-if="data.stock.oldestNights != null"> · เก่าสุด {{ data.stock.oldestNights }} คืน</template></span></div>
       </div>
 
       <p v-if="s.unbilledTrips" class="note note--warn">มี {{ s.unbilledTrips }} เที่ยวที่ยังไม่กรอกยอดบิลโรงงาน — ยังไม่นับทั้งรายรับและต้นทุนของเที่ยวนั้น (แต่ตัดยางออกจากสต็อกแล้ว) กรอกยอดบิลที่เมนู “การขนส่ง”</p>
       <p v-if="s.uncoveredKg > 0" class="note note--warn">ส่งขายเกินยางที่บันทึกซื้อไว้ {{ formatKg(s.uncoveredKg) }} (ไม่มีต้นทุนให้ตัด) — กำไรอาจสูงเกินจริง ตรวจว่าเลือกช่วงวันครอบคลุมวันซื้อ หรือมีใบรับซื้อที่ยังไม่ยืนยันอยู่หรือไม่</p>
 
       <!-- รอบขาย: ยางที่ส่งแต่ละเที่ยวมาจากการซื้อวันไหน -->
-      <h3 class="h">รอบขายในช่วงนี้ <small>ยางที่ส่งแต่ละเที่ยวมาจากการซื้อวันไหน</small></h3>
+      <h3 class="h">รอบขายในช่วงนี้ <small>ยางที่ส่งแต่ละเที่ยวมาจากการซื้อวันไหน<template v-if="totalLoss != null"> · สูญเสียน้ำรวม <b>{{ formatNumber(totalLoss) }}%</b></template></small></h3>
       <p v-if="!data.trips.length" class="rp__empty">ไม่มีเที่ยวขนส่งในช่วงนี้</p>
       <div v-else class="tw">
         <table class="tb">
-          <thead><tr><th>วันที่ขาย / เที่ยว</th><th class="r">ส่ง (กก.)</th><th>ยางมาจากการซื้อ</th><th class="r">ค้างเฉลี่ย</th><th class="r">ต้นทุนยาง</th><th class="r">ยอดบิลโรงงาน</th><th class="r">กำไรขั้นต้น</th></tr></thead>
+          <thead><tr><th>วันที่ขาย / เที่ยว</th><th class="r">ส่ง (กก.)</th><th class="r">สูญเสียน้ำ</th><th>ยางมาจากการซื้อ</th><th class="r">ค้างเฉลี่ย</th><th class="r">ต้นทุนยาง</th><th class="r">ยอดบิลโรงงาน</th><th class="r">กำไรขั้นต้น</th></tr></thead>
           <tbody>
             <tr v-for="t in data.trips" :key="t.id">
               <td><b>{{ formatThaiDate(t.date) }}</b><br /><small>เที่ยวที่ {{ t.tripNo }} · {{ productLabel(t.productType) }}</small></td>
               <td class="r">{{ formatNumber(t.shippedKg) }}<template v-if="t.stockKg != null && t.stockKg !== t.shippedKg"><br /><small>ตัดสต็อก {{ formatNumber(t.stockKg) }}</small></template></td>
+              <td class="r" :class="lossTone(t)"><b>{{ formatNumber(lossPct(t)) }}%</b><br /><small>{{ formatNumber(t.shippedKg - t.factoryNetKg) }} กก.</small></td>
               <td class="src"><span v-for="x in t.sources" :key="x.date" class="chip" :class="{ old: x.nights > 0 }">{{ srcText(x) }}<i v-if="x.nights > 0"> ({{ x.nights }} คืน)</i></span><span v-if="t.uncoveredKg > 0" class="chip chip--bad">ไม่พบยางซื้อ {{ formatNumber(t.uncoveredKg) }} กก.</span></td>
               <td class="r">{{ nightsText(t.avgNights) }}</td>
               <td class="r">{{ formatMoney(t.cost) }}</td>
@@ -107,16 +112,6 @@ const srcText = (x) => `${dayShort.format(new Date(`${x.date}T00:00:00`))} · ${
         </table>
       </div>
       <p class="note">กำไรขั้นต้น = ยอดบิลโรงงาน − ต้นทุนยางที่ส่งไป (ยังไม่หักค่าคนงาน/ค่าขนส่ง/อื่น ๆ ซึ่งหักรวมที่ “กำไรสุทธิ” ด้านบน)</p>
-
-      <!-- ยางค้างสต็อก -->
-      <button type="button" class="tog" :aria-expanded="showLots" @click="showLots = !showLots">{{ showLots ? '▾' : '▸' }} ยางที่ยังค้างสต็อก ({{ data.stock.lots.length }} ล็อต)</button>
-      <div v-if="showLots" class="tw">
-        <p v-if="!data.stock.lots.length" class="rp__empty">ไม่มียางค้างสต็อก</p>
-        <table v-else class="tb">
-          <thead><tr><th>ซื้อเมื่อ</th><th>สินค้า</th><th class="r">คงเหลือ (กก.)</th><th class="r">ต้นทุน/กก.</th><th class="r">มูลค่าต้นทุน</th><th class="r">ค้างมา</th></tr></thead>
-          <tbody><tr v-for="l in data.stock.lots" :key="l.date + l.productType"><td>{{ formatThaiDate(l.date) }}</td><td>{{ productLabel(l.productType) }}</td><td class="r">{{ formatNumber(l.kg) }}</td><td class="r">{{ formatMoney(l.costPerKg) }}</td><td class="r">{{ formatMoney(l.value) }}</td><td class="r">{{ l.nights }} คืน</td></tr></tbody>
-        </table>
-      </div>
     </div>
     <p v-else-if="loading" class="rp__empty">กำลังโหลด…</p>
   </div>
@@ -152,4 +147,5 @@ const srcText = (x) => `${dayShort.format(new Date(`${x.date}T00:00:00`))} · ${
 .chip.old { background: #f5f3ff; color: #6d28d9; border-color: #c4b5fd; } .chip--bad { background: var(--red-50); color: var(--red-700); border-color: #fecaca; }
 .tog { align-self: flex-start; font-size: 12px; font-weight: 700; color: var(--slate-600); }
 @media (max-width: 700px) { .c--net { grid-column: span 1; } }
+.lossy b { color: #b45309; }
 </style>

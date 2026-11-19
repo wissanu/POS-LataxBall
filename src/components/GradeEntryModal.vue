@@ -9,6 +9,7 @@ import { useCartStore } from '@/stores/cart'
 import { useMemberStore } from '@/stores/members'
 import { useSettingsStore } from '@/stores/settings'
 import { useToast } from '@/composables/useToast'
+import { orderService } from '@/services/orderService'
 import { formatMoney, formatNumber, formatKg, sanitizeDecimal, toNumber, round2 } from '@/utils/format'
 
 /**
@@ -27,6 +28,16 @@ const cart = useCartStore()
 const members = useMemberStore()
 const settings = useSettingsStore()
 const toast = useToast()
+
+// ชื่อลูกค้า (ลูกค้าทั่วไป/สวน): เติมอัตโนมัติจากชื่อที่เคยกรอก — ใช้ชื่อเดิมซ้ำ ๆ จะค้นหา/สรุปยอดตามชื่อได้ตรงกัน
+const nameHints = ref([])
+let hintTimer
+async function loadHints() {
+  if (cart.customerType === 'member') { nameHints.value = []; return }
+  try { nameHints.value = (await orderService.names(cart.customerType, cart.customerName.trim())).map((x) => x.name) } catch { nameHints.value = [] }
+}
+watch(() => [cart.customerType, props.modelValue], () => { if (props.modelValue) loadHints() }, { immediate: true })
+function onNameInput() { clearTimeout(hintTimer); hintTimer = setTimeout(loadHints, 250) }
 
 const MODES = [
   { id: 'none', label: 'ไม่ใส่ตะกร้าเข่ง' },
@@ -186,7 +197,12 @@ function onModel(v) {
         </div>
         <MemberCombobox v-if="cart.customerType === 'member'" v-model="cart.memberId" :members="members.items" />
         <p v-if="cart.customerType === 'member' && !cart.memberId" class="who__warn">เลือกลูกค้าประจำก่อนพิมพ์บิล</p>
-        <p v-else-if="cart.customerType === 'general'" class="who__note">ใช้กับผู้ที่ไม่ใช่ลูกค้าประจำ (ไม่ต้องระบุชื่อ)</p>
+        <div v-if="cart.customerType !== 'member'" class="who__name">
+          <label for="cust-name">{{ cart.customerType === 'garden' ? 'ชื่อสวน / ชื่อเจ้าของสวน' : 'ชื่อลูกค้า' }} <em>(ไม่บังคับ — ใส่ไว้เพื่อดูย้อนหลังว่ายางของใคร)</em></label>
+          <input id="cust-name" v-model="cart.customerName" type="text" maxlength="80" autocomplete="off" list="cust-name-list" :placeholder="cart.customerType === 'garden' ? 'เช่น สวนลุงดำ' : 'เช่น สมชาย ใจดี'" @input="onNameInput" />
+          <datalist id="cust-name-list"><option v-for="n in nameHints" :key="n" :value="n" /></datalist>
+        </div>
+        <p v-if="cart.customerType === 'general'" class="who__note">ใช้กับผู้ที่ไม่ใช่ลูกค้าประจำ · ถ้าไม่ใส่ชื่อ ใบนี้จะแสดงเป็น "ลูกค้าทั่วไป (ไม่ระบุชื่อ)"</p>
         <div v-else-if="cart.customerType === 'garden'" class="share">
           <label for="share-pct">ส่วนแบ่งลูกจ้างสวน</label>
           <span class="share__in"><input id="share-pct" v-model="cart.sharePct" inputmode="decimal" maxlength="6" autocomplete="off" aria-describedby="share-note" @input="cart.sharePct = sanitizeDecimal($event.target.value, 2)" /><em>%</em></span>
@@ -332,4 +348,8 @@ kbd { padding: 1px 7px; border: 1px solid var(--slate-300); border-bottom-width:
 .warn__back { color: var(--blue-700); font-weight: 700; }
 .warn__drop { color: #dc2626; font-weight: 700; }
 @media (max-width: 900px) { .top { grid-template-columns: 1fr; } }
+.who__name { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+.who__name label { font-size: 12px; font-weight: 700; color: var(--slate-800); } .who__name label em { font-style: normal; font-weight: 500; color: var(--slate-500); }
+.who__name input { height: 38px; padding: 0 12px; border: 1px solid var(--slate-200); border-radius: var(--radius-md); background: #fff; font: inherit; font-size: 13px; color: var(--slate-900); }
+.who__name input:focus { outline: none; border-color: var(--blue-600); box-shadow: 0 0 0 3px rgba(37, 99, 235, .15); }
 </style>

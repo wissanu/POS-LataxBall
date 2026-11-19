@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import BaseButton from '@/components/BaseButton.vue'
 import BaseInput from '@/components/BaseInput.vue'
@@ -9,7 +9,7 @@ import TransportSummaryModal from '@/components/TransportSummaryModal.vue'
 import TripSourcePicker from '@/components/TripSourcePicker.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useToast } from '@/composables/useToast'
-import { transportService } from '@/services/transportService'
+import { transportDraftService, transportService } from '@/services/transportService'
 import { stockService } from '@/services/stockService'
 import { getErrorMessage } from '@/services/http'
 import { bangkokDate, addDays, formatThaiDate } from '@/utils/dates'
@@ -72,7 +72,7 @@ function openSummary(mode) { sumMode.value = mode; sumOpen.value = true }
 const summary = computed(() => data.value?.summary)
 
 // ---- ฟอร์ม (เพิ่ม/แก้ไข) ----
-const blank = () => ({ date: bangkokDate(), shippedKg: '', departAt: '', billAt: '', factoryNetKg: '', factoryPricePerKg: '', factoryAmount: '', productType: 'CUP_LUMP', stockKg: '', note: '' })
+const blank = () => ({ date: bangkokDate(), shippedKg: '', departAt: '', billAt: '', factoryNetKg: '', billMode: 'direct', factoryPricePerKg: '', factoryDrcPct: '', factoryAmount: '', productType: 'CUP_LUMP', stockKg: '', note: '' })
 const amountEdited = ref(false) // true = ผู้ใช้พิมพ์ยอดบิลเอง (ไม่คำนวณทับให้)
 const open = ref(false)
 const editing = ref(null) // Trip | null
@@ -80,32 +80,43 @@ const form = reactive(blank())
 const touched = ref(false)
 const dayFmt = new Intl.DateTimeFormat('th-TH', { day: 'numeric', month: 'short' })
 const shortDate = (d) => dayFmt.format(new Date(`${d}T00:00:00`))
-// ยางที่ขายในเที่ยวนี้ (เลือกจากยางรอขาย) — ids = ใบรับซื้อที่ตัดเข้าเที่ยว · includeFoam = นับขี้ฟองรวมด้วย
+// ยางที่ขายในเที่ยวนี้ (เลือกจากยางรอขาย) — ids = ใบรับซื้อที่ตัดเข้าเที่ยว · includeFoam ไม่ใช้แล้ว (แท็บยางก้อนถ้วยไม่ยุ่งกับขี้ฟอง)
 const srcSel = ref({ ids: [], includeFoam: false })
-const shippedTouched = ref(false) // true = ผู้ใช้กรอก/แก้น้ำหนักที่ส่งเอง → ไม่เติมจากยางที่เลือกทับ
-let autoFill = false
-watch(() => form.shippedKg, () => { if (!autoFill) shippedTouched.value = true })
+const pickerDraft = ref(null) // ฉบับร่างที่เปิดอยู่ (ส่งให้ตัวเลือกยาง เพื่อไม่ล็อกใบของฉบับร่างนี้เอง)
+// น้ำหนักที่ส่ง "ตามยางที่เลือก": ทุกครั้งที่น้ำหนักรวมของยางที่เลือกเปลี่ยน → เติมช่องน้ำหนักที่ส่งให้ (แก้ทับเองได้ ถ้าชั่งใหม่ก่อนขึ้นรถ)
+//   เปรียบเทียบกับน้ำหนักรวมครั้งก่อน (ไม่ใช้ธงว่าผู้ใช้เคยพิมพ์) จึงไม่หลุดเงียบ ๆ เหมือนเดิม
+let lastTotalKg = null // น้ำหนักรวมของยางที่เลือก ณ ครั้งก่อน
+let lastAuto = null // ค่าที่ระบบเติมให้ครั้งล่าสุด (ไว้รู้ว่าช่องยังเป็นค่าอัตโนมัติอยู่ไหม)
+let needBaseline = false // แก้ไขเที่ยวเดิม / เปิดฉบับร่าง: ไม่เติมทับจนกว่ารายการยางโหลดเสร็จ (เก็บน้ำหนักเดิมไว้)
+function setShipped(v) { lastAuto = v; form.shippedKg = v }
 function onSrcTotal(t) {
-  if (shippedTouched.value || !(t.kg > 0)) return
-  autoFill = true
-  form.shippedKg = String(round2(t.kg))
-  nextTick(() => { autoFill = false })
+  if (!open.value || needBaseline) return
+  if (lastTotalKg === t.kg) return
+  lastTotalKg = t.kg
+  if (t.kg > 0) setShipped(String(round2(t.kg)))
+  else if (lastAuto !== null && form.shippedKg === lastAuto) setShipped('')
 }
-watch(() => form.productType, () => { if (open.value) srcSel.value = { ids: [], includeFoam: false } })
+function onSrcReady(t) {
+  if (needBaseline) { needBaseline = false; lastTotalKg = t.kg; return }
+  onSrcTotal(t)
+}
+watch(() => form.productType, () => { if (open.value) { srcSel.value = { ids: [], includeFoam: false }; lastTotalKg = null } })
 // ยางรอขายรวม (ไว้เห็นภาพรวมบนหน้าขนส่ง)
 const stockSummary = ref(null)
 async function loadStock() { try { stockSummary.value = (await stockService.unsold()).summary } catch { stockSummary.value = null } }
 onMounted(loadStock)
 const saving = ref(false)
 
-function openNew() { editing.value = null; Object.assign(form, blank()); srcSel.value = { ids: [], includeFoam: false }; shippedTouched.value = false; amountEdited.value = false; touched.value = false; open.value = true }
+function resetSrc() { lastTotalKg = null; lastAuto = null }
+function openNew() { editing.value = null; activeDraftId = null; pickerDraft.value = null; Object.assign(form, blank()); srcSel.value = { ids: [], includeFoam: false }; resetSrc(); needBaseline = false; amountEdited.value = false; touched.value = false; open.value = true }
 function openEdit(t) {
   editing.value = t
-  Object.assign(form, { date: t.date, shippedKg: String(t.shippedKg), departAt: t.departAt, billAt: t.billAt, factoryNetKg: String(t.factoryNetKg), factoryPricePerKg: t.factoryPricePerKg != null ? String(t.factoryPricePerKg) : '', factoryAmount: t.factoryAmount != null ? String(t.factoryAmount) : '', productType: t.productType ?? 'CUP_LUMP', stockKg: t.stockKg != null ? String(t.stockKg) : '', note: t.note ?? '' })
+  activeDraftId = null; pickerDraft.value = null
+  Object.assign(form, { date: t.date, shippedKg: String(t.shippedKg), departAt: t.departAt, billAt: t.billAt, factoryNetKg: String(t.factoryNetKg), billMode: t.factoryDrcPct != null ? 'drc' : 'direct', factoryDrcPct: t.factoryDrcPct != null ? String(t.factoryDrcPct) : '', factoryPricePerKg: t.factoryPricePerKg != null ? String(t.factoryPricePerKg) : '', factoryAmount: t.factoryAmount != null ? String(t.factoryAmount) : '', productType: t.productType ?? 'CUP_LUMP', stockKg: t.stockKg != null ? String(t.stockKg) : '', note: t.note ?? '' })
   // ยอดบิลที่ไม่เท่ากับ น้ำหนัก × ราคา = เคยพิมพ์เอง (เช่น โรงงานหักความชื้น) → อย่าคำนวณทับ
-  amountEdited.value = t.factoryAmount != null && round2(toNumber(t.factoryNetKg) * toNumber(t.factoryPricePerKg)) !== round2(toNumber(t.factoryAmount))
-  srcSel.value = { ids: [...(t.sourcePurchaseIds ?? [])], includeFoam: !!t.includeFoam }
-  shippedTouched.value = true // แก้เที่ยวเดิม: ไม่เติมน้ำหนักที่ส่งทับ
+  amountEdited.value = t.factoryAmount != null && round2(toNumber(t.factoryNetKg) * toNumber(t.factoryPricePerKg) * (t.factoryDrcPct != null ? t.factoryDrcPct / 100 : 1)) !== round2(toNumber(t.factoryAmount))
+  srcSel.value = { ids: [...(t.sourcePurchaseIds ?? [])], includeFoam: false }
+  resetSrc(); needBaseline = true // แก้เที่ยวเดิม: เก็บน้ำหนักที่ส่งเดิมไว้ จนกว่าจะเปลี่ยนยางที่เลือก
   touched.value = false
   open.value = true
 }
@@ -116,12 +127,18 @@ function fmtTime(v) {
   return d.length > 2 ? `${d.slice(0, 2)}:${d.slice(2)}` : d
 }
 
-// ยอดบิล = น้ำหนักสุทธิ × ราคา/กก. (คำนวณให้อัตโนมัติ จนกว่าจะพิมพ์ยอดเอง)
-watch(() => [form.factoryNetKg, form.factoryPricePerKg], () => {
+// ยอดบิล (คำนวณให้อัตโนมัติ จนกว่าจะพิมพ์ยอดเอง)
+//   ราคาตรง ๆ  : น้ำหนักสุทธิ × ราคา/กก.
+//   คิดจาก DRC%: น้ำหนักสุทธิ × DRC% × ราคา/กก. (ราคายางแห้ง)
+const drcMode = computed(() => form.billMode === 'drc')
+const drcFactor = computed(() => (drcMode.value ? toNumber(form.factoryDrcPct) / 100 : 1))
+const wetPrice = computed(() => (drcMode.value && toNumber(form.factoryDrcPct) > 0 && toNumber(form.factoryPricePerKg) > 0 ? round2(toNumber(form.factoryPricePerKg) * drcFactor.value) : null)) // ราคาเทียบต่อ กก. น้ำหนักที่ชั่ง
+watch(() => [form.factoryNetKg, form.factoryPricePerKg, form.factoryDrcPct, form.billMode], () => {
   if (amountEdited.value) return
   const n = toNumber(form.factoryNetKg); const p = toNumber(form.factoryPricePerKg)
-  form.factoryAmount = n > 0 && p > 0 ? String(round2(n * p)) : ''
+  form.factoryAmount = n > 0 && p > 0 && drcFactor.value > 0 ? String(round2(n * p * drcFactor.value)) : ''
 })
+function setBillMode(m) { if (form.billMode === m) return; form.billMode = m; amountEdited.value = false }
 const onAmount = (v) => { amountEdited.value = v !== ''; return sanitizeDecimal(v, 2) }
 
 const minutes = computed(() => durationMinutes(form.departAt, form.billAt))
@@ -133,6 +150,12 @@ const errors = computed(() => {
   if (!(toNumber(form.shippedKg) > 0)) e.shippedKg = 'กรอกน้ำหนักที่ขนส่ง'
   if (minutes.value == null) { e.departAt = 'กรอกเวลา เช่น 08:30'; e.billAt = 'กรอกเวลา เช่น 14:30' }
   if (!(toNumber(form.factoryNetKg) > 0)) e.factoryNetKg = 'กรอกน้ำหนักสุทธิที่โรงงานชั่งได้'
+  if (drcMode.value) {
+    const d = toNumber(form.factoryDrcPct)
+    if (form.factoryDrcPct !== '' && (d <= 0 || d > 100)) e.factoryDrcPct = 'DRC% ต้องอยู่ระหว่าง 1-100'
+    if (toNumber(form.factoryPricePerKg) > 0 && !(d > 0)) e.factoryDrcPct = e.factoryDrcPct || 'กรอก DRC% คู่กับราคา'
+    if (d > 0 && !(toNumber(form.factoryPricePerKg) > 0)) e.factoryPricePerKg = 'กรอกราคาโรงงานคู่กับ DRC%'
+  }
   return e
 })
 const err = (k) => (touched.value ? errors.value[k] : '')
@@ -141,13 +164,17 @@ async function save() {
   touched.value = true
   if (Object.keys(errors.value).length) return
   saving.value = true
-  const payload = { date: form.date, shippedKg: toNumber(form.shippedKg), departAt: form.departAt, billAt: form.billAt, factoryNetKg: toNumber(form.factoryNetKg), factoryPricePerKg: toNumber(form.factoryPricePerKg) > 0 ? toNumber(form.factoryPricePerKg) : null, factoryAmount: toNumber(form.factoryAmount) > 0 ? toNumber(form.factoryAmount) : null, productType: form.productType, stockKg: toNumber(form.stockKg) > 0 ? toNumber(form.stockKg) : null, note: form.note.trim() || undefined }
-  if (editing.value || srcSel.value.ids.length) Object.assign(payload, { sourcePurchaseIds: srcSel.value.ids, includeFoam: srcSel.value.includeFoam }) // แก้ไข: ส่งเสมอ (แทนที่/ปล่อยคืนยาง)
+  const payload = { date: form.date, shippedKg: toNumber(form.shippedKg), departAt: form.departAt, billAt: form.billAt, factoryNetKg: toNumber(form.factoryNetKg), factoryPricePerKg: toNumber(form.factoryPricePerKg) > 0 ? toNumber(form.factoryPricePerKg) : null, factoryDrcPct: drcMode.value && toNumber(form.factoryDrcPct) > 0 ? toNumber(form.factoryDrcPct) : null, factoryAmount: toNumber(form.factoryAmount) > 0 ? toNumber(form.factoryAmount) : null, productType: form.productType, stockKg: toNumber(form.stockKg) > 0 ? toNumber(form.stockKg) : null, note: form.note.trim() || undefined }
+  if (editing.value || srcSel.value.ids.length) Object.assign(payload, { sourcePurchaseIds: srcSel.value.ids, includeFoam: false })
+    if (!editing.value && activeDraftId) payload.draftId = activeDraftId // บันทึกจากฉบับร่าง: server ลบฉบับร่างให้ในครั้งเดียวกัน // แก้ไข: ส่งเสมอ (แทนที่/ปล่อยคืนยาง)
   try {
     if (editing.value) await transportService.update(editing.value.id, payload)
     else await transportService.create(payload)
     toast.success('บันทึกเที่ยวขนส่งแล้ว')
+    const done = activeDraftId // บันทึกสำเร็จ = ฉบับร่างที่เปิดอยู่หมดหน้าที่ (ลบทิ้ง ไม่เก็บซ้ำตอนปิดหน้าต่าง)
+    activeDraftId = null; skipDraft = true
     open.value = false
+    loadDrafts()
     await load()
     loadStock()
   } catch (e) {
@@ -155,6 +182,75 @@ async function save() {
   } finally {
     saving.value = false
   }
+}
+
+// ---- ฉบับร่าง: กรอกค้างแล้วปิดหน้าต่าง → เก็บเป็นชิปบนหน้า · กดชิป = เปิดกรอกต่อ · กด x = ลบ ----
+const drafts = ref([])
+let activeDraftId = null // ฉบับร่างที่กำลังเปิดอยู่ในฟอร์ม (null = เที่ยวใหม่ที่ยังไม่มีร่าง)
+let skipDraft = false
+async function loadDrafts() { try { drafts.value = await transportDraftService.list() } catch { /* ไม่แสดง error: ชิปแค่ไม่ขึ้น */ } }
+onMounted(loadDrafts)
+// ดึงสถานะฉบับร่างใหม่ทุก 10 วินาที (น้ำหนัก/ใบที่ยังเหลือ — ไม่มีใบใหม่เข้ามาเอง) (เฉพาะตอนแท็บมองเห็นและไม่ได้เปิดฟอร์ม) และตอนกลับมาที่แท็บ
+let draftTimer
+const refreshDrafts = () => { if (document.visibilityState === 'visible' && !open.value) loadDrafts() }
+onMounted(() => { draftTimer = setInterval(refreshDrafts, 10000); document.addEventListener('visibilitychange', refreshDrafts) })
+onBeforeUnmount(() => { clearInterval(draftTimer); document.removeEventListener('visibilitychange', refreshDrafts) })
+const snapshot = () => ({
+  date: form.date, productType: form.productType, shippedKg: form.shippedKg, departAt: form.departAt, billAt: form.billAt, factoryNetKg: form.factoryNetKg,
+  billMode: form.billMode, factoryPricePerKg: form.factoryPricePerKg, factoryDrcPct: form.factoryDrcPct, factoryAmount: form.factoryAmount, amountEdited: amountEdited.value,
+  stockKg: form.stockKg, note: form.note, sourceIds: [...srcSel.value.ids],
+  // ฉบับร่างล็อกเฉพาะใบที่เลือกไว้ตอนนี้ (sourceIds) — ใบที่รับซื้อเพิ่มทีหลังไม่ถูกบวกเข้ามาเอง
+  // น้ำหนักที่ส่งพิมพ์เอง = คงค่าที่พิมพ์ · ไม่ได้พิมพ์เอง = ตามน้ำหนักของยางที่เลือกล่าสุดเสมอ
+  shippedManual: form.shippedKg !== '' && form.shippedKg !== lastAuto,
+})
+// มีอะไรกรอกไว้บ้างไหม (วันที่/ประเภทสินค้าอย่างเดียวไม่นับ)
+const isDirty = () => !!(form.shippedKg || form.departAt || form.billAt || form.factoryNetKg || form.factoryPricePerKg || form.factoryDrcPct || form.factoryAmount || form.stockKg || form.note.trim() || srcSel.value.ids.length)
+watch(open, async (v, was) => {
+  if (!was || v) return
+  if (skipDraft) { skipDraft = false; return }
+  if (editing.value) return // แก้เที่ยวที่บันทึกแล้ว ไม่ทำเป็นฉบับร่าง
+  const id = activeDraftId; activeDraftId = null
+  try {
+    if (isDirty()) {
+      const payload = snapshot()
+      if (id) await transportDraftService.update(id, payload); else await transportDraftService.create(payload)
+      toast.info('เก็บเป็นฉบับร่างแล้ว — กดชิป “ร่าง” ด้านบนเพื่อกรอกต่อ')
+    } else if (id) await transportDraftService.remove(id) // ล้างข้อมูลจนว่าง = ไม่ต้องเก็บร่าง
+  } catch (e) { toast.error(getErrorMessage(e, 'เก็บฉบับร่างไม่สำเร็จ')) }
+  loadDrafts()
+})
+async function openDraft(d0) {
+  await loadDrafts() // เอาข้อมูลล่าสุด (น้ำหนักตามใบปัจจุบัน · ใบที่ขายแล้ว/ยกเลิกหลุดออก)
+  const d = drafts.value.find((x) => x.id === d0.id)
+  if (!d) return toast.error('ไม่พบฉบับร่างนี้แล้ว (อาจถูกลบหรือบันทึกเป็นเที่ยวแล้ว)')
+  const p = d.payload ?? {}
+  const r = d.resolved ?? { ids: [], kg: 0, gone: 0 }
+  editing.value = null; activeDraftId = d.id; pickerDraft.value = d.id
+  Object.assign(form, blank(), {
+    date: p.date || bangkokDate(), productType: p.productType === 'FOAM' ? 'FOAM' : 'CUP_LUMP', shippedKg: p.shippedKg ?? '', departAt: p.departAt ?? '', billAt: p.billAt ?? '',
+    factoryNetKg: p.factoryNetKg ?? '', billMode: p.billMode === 'drc' ? 'drc' : 'direct', factoryPricePerKg: p.factoryPricePerKg ?? '', factoryDrcPct: p.factoryDrcPct ?? '',
+    factoryAmount: p.factoryAmount ?? '', stockKg: p.stockKg ?? '', note: p.note ?? '',
+  })
+  amountEdited.value = !!p.amountEdited
+  // ยางที่เลือก = ใบที่ฉบับร่างล็อกไว้ (ตัดใบที่ขายแล้ว/ยกเลิกออก) — ไม่มีใบใหม่เข้ามาเอง
+  srcSel.value = { ids: [...r.ids], includeFoam: false }
+  resetSrc(); needBaseline = true
+  // น้ำหนักที่ส่ง: ไม่ได้พิมพ์เอง → อัปเดตตามน้ำหนักล่าสุดของยางที่เลือก · พิมพ์เองไว้ → คงค่าเดิม
+  if (!p.shippedManual && r.ids.length) setShipped(String(round2(r.kg)))
+  touched.value = false
+  open.value = true
+  if (r.gone) toast.info(`มี ${r.gone} ใบที่เลือกไว้ถูกขายหรือยกเลิกไปแล้ว — เอาออกจากฉบับร่างให้แล้ว`)
+}
+async function removeDraft(d) {
+  try { await transportDraftService.remove(d.id); drafts.value = drafts.value.filter((x) => x.id !== d.id); toast.success('ลบฉบับร่างแล้ว') } catch (e) { toast.error(getErrorMessage(e, 'ลบฉบับร่างไม่สำเร็จ')) }
+}
+// ชิปฉบับร่าง: มียางที่เลือกไว้ = "กำลังจัดส่ง" (ใบเหล่านั้นถูกจอง เลือกซ้ำไม่ได้) · ล็อกเฉพาะใบที่เลือกไว้ตอนทำฉบับร่าง (ใบใหม่ไม่เข้ามาเอง) · น้ำหนัก = ตามใบเหล่านั้นล่าสุด
+const draftBills = (d) => d.resolved?.bills ?? 0
+const draftKg = (d) => { const p = d.payload ?? {}; return p.shippedManual && toNumber(p.shippedKg) > 0 ? toNumber(p.shippedKg) : draftBills(d) ? d.resolved.kg : toNumber(p.shippedKg) }
+const draftLabel = (d) => {
+  const p = d.payload ?? {}
+  const kg = draftKg(d)
+  return `${draftBills(d) ? 'กำลังจัดส่ง' : 'ร่าง'} · ${p.date ? shortDate(p.date) : '—'} · ${productLabel(p.productType ?? 'CUP_LUMP')}${kg > 0 ? ` ${formatKg(kg)}` : ''}${draftBills(d) ? ` · ${draftBills(d)} ใบ` : ''}`
 }
 
 // ---- ลบ ----
@@ -197,8 +293,18 @@ const tone = (pct) => (pct == null ? '' : pct < 0 ? 'neg' : 'ok')
 
     <!-- ยางรอขาย (รับซื้อแล้ว ยังไม่ได้ขายให้โรงงาน): ขายต่อวัน / ค้างคืน — เปลี่ยนสถานะได้ที่เมนู "ยางรอขาย" -->
     <div v-if="stockSummary" class="tiles tiles--stock">
-      <RouterLink to="/stock" class="tile tile--day"><small>ยางรอขาย · ขายต่อวัน ({{ stockSummary.sameDay.bills }} ใบ)</small><b>{{ formatKg(stockSummary.sameDay.cupKg) }}</b><em>ก้อนถ้วย · รวมขี้ฟอง {{ formatKg(stockSummary.sameDay.cupKg + stockSummary.sameDay.foamKg) }} <template v-if="stockSummary.sameDay.foamKg > 0">(ขี้ฟอง {{ formatKg(stockSummary.sameDay.foamKg) }})</template></em></RouterLink>
-      <RouterLink to="/stock" class="tile tile--night"><small>ยางรอขาย · ค้างคืน ({{ stockSummary.overnight.bills }} ใบ)</small><b>{{ formatKg(stockSummary.overnight.cupKg) }}</b><em>ก้อนถ้วย · รวมขี้ฟอง {{ formatKg(stockSummary.overnight.cupKg + stockSummary.overnight.foamKg) }} <template v-if="stockSummary.overnight.foamKg > 0">(ขี้ฟอง {{ formatKg(stockSummary.overnight.foamKg) }})</template></em></RouterLink>
+      <RouterLink to="/stock" class="tile tile--day"><small>ยางก้อนถ้วยรอขาย · ขายต่อวัน ({{ stockSummary.sameDay.bills }} ใบ)</small><b>{{ formatKg(stockSummary.sameDay.cupKg) }}</b></RouterLink>
+      <RouterLink to="/stock" class="tile tile--night"><small>ยางก้อนถ้วยรอขาย · ค้างคืน ({{ stockSummary.overnight.bills }} ใบ)</small><b>{{ formatKg(stockSummary.overnight.cupKg) }}</b></RouterLink>
+      <RouterLink to="/stock" class="tile tile--foam"><small>ขี้ฟองรอขาย (ทั้งขายต่อวันและค้างคืน)</small><b>{{ formatKg(stockSummary.sameDay.foamKg + stockSummary.overnight.foamKg) }}</b></RouterLink>
+    </div>
+
+    <!-- ฉบับร่างเที่ยวขนส่ง: กดชิปเพื่อกรอกต่อ · x = ลบ -->
+    <div v-if="drafts.length" class="drafts" aria-label="ฉบับร่างเที่ยวขนส่ง">
+      <span class="drafts__lead">ฉบับร่าง / กำลังจัดส่ง</span>
+      <span v-for="d in drafts" :key="d.id" class="dchip" :class="{ 'dchip--ship': draftBills(d) }">
+        <button type="button" class="dchip__open" :title="draftBills(d) ? 'ยางในฉบับร่างนี้อยู่ในสถานะ กำลังจัดส่ง — เลือกซ้ำที่อื่นไม่ได้จนกว่าจะบันทึกเป็นเที่ยวหรือลบฉบับร่าง' : (canEdit ? 'เปิดกรอกต่อ' : 'ดูฉบับร่าง')" @click="openDraft(d)"><AppIcon :name="draftBills(d) ? 'truck' : 'clock'" :size="12" /> {{ draftLabel(d) }}</button>
+        <button v-if="canEdit" type="button" class="dchip__x" :aria-label="`ลบ${draftLabel(d)}`" title="ลบฉบับร่าง" @click="removeDraft(d)"><AppIcon name="x" :size="12" /></button>
+      </span>
     </div>
 
     <div v-if="summary" class="tiles">
@@ -238,7 +344,7 @@ const tone = (pct) => (pct == null ? '' : pct < 0 ? 'neg' : 'ok')
             <td>{{ t.billAt }} น.</td>
             <td>{{ formatDuration(t.durationMin) }}</td>
             <td class="r">{{ formatKg(t.factoryNetKg) }}</td>
-            <td class="r">{{ t.factoryAmount != null ? formatMoney(t.factoryAmount) : '–' }}</td>
+            <td class="r">{{ t.factoryAmount != null ? formatMoney(t.factoryAmount) : '–' }}<br v-if="t.factoryDrcPct != null" /><small v-if="t.factoryDrcPct != null">DRC {{ formatNumber(t.factoryDrcPct) }}% · {{ formatMoney(t.factoryPricePerKg) }}/กก.</small></td>
             <td class="r">{{ formatNumber(t.lossKg) }}</td>
             <td class="r"><span class="pill" :class="tone(t.lossPct)">{{ pctText(t.lossPct) }}</span></td>
             <td class="r">{{ pctText(t.lossPctPerHour) }}</td>
@@ -268,7 +374,7 @@ const tone = (pct) => (pct == null ? '' : pct < 0 ? 'neg' : 'ok')
           </div>
         </div>
 
-        <TripSourcePicker v-if="open" :key="(editing?.id ?? 'new') + form.productType" v-model="srcSel" :product-type="form.productType" :trip-id="editing?.id ?? null" :trip-date="form.date" @total="onSrcTotal" />
+        <TripSourcePicker v-if="open" :key="(editing?.id ?? 'new') + form.productType" v-model="srcSel" :product-type="form.productType" :trip-id="editing?.id ?? null" :trip-date="form.date" :draft-id="pickerDraft" @total="onSrcTotal" @ready="onSrcReady" />
 
         <h3>1) น้ำหนัก{{ productLabel(form.productType) }}ที่ขนส่ง</h3>
         <BaseInput v-model="form.shippedKg" label="น้ำหนักที่ส่ง (กก.)" inputmode="decimal" placeholder="เช่น 5200" :format="(v) => sanitizeDecimal(v, 2)" :error="err('shippedKg')" />
@@ -287,11 +393,23 @@ const tone = (pct) => (pct == null ? '' : pct < 0 ? 'neg' : 'ok')
         <BaseInput v-model="form.factoryNetKg" label="น้ำหนักสุทธิ (กก.)" inputmode="decimal" placeholder="เช่น 5000" :format="(v) => sanitizeDecimal(v, 2)" :error="err('factoryNetKg')" />
 
         <h3>4) ยอดเงินตามบิลโรงงาน <small>(ไม่บังคับ · ใช้คำนวณรายรับและกำไร)</small></h3>
-        <div class="row">
+        <div class="pt" role="radiogroup" aria-label="วิธีกรอกยอดบิลโรงงาน">
+          <button type="button" role="radio" :aria-checked="!drcMode" :class="{ on: !drcMode }" @click="setBillMode('direct')">กรอกราคาโรงงานตรง ๆ</button>
+          <button type="button" role="radio" :aria-checked="drcMode" :class="{ on: drcMode }" @click="setBillMode('drc')">คิดจากราคา + DRC%</button>
+        </div>
+        <div v-if="!drcMode" class="row">
           <BaseInput v-model="form.factoryPricePerKg" label="ราคาที่โรงงานรับซื้อ (บาท/กก.)" inputmode="decimal" placeholder="เช่น 42.50" :format="(v) => sanitizeDecimal(v, 2)" />
           <BaseInput :model-value="form.factoryAmount" label="ยอดเงินตามบิล (บาท)" inputmode="decimal" placeholder="คำนวณให้อัตโนมัติ" :format="onAmount" @update:model-value="(v) => (form.factoryAmount = v)" />
         </div>
-        <p class="hint">ยอดบิล = น้ำหนักสุทธิที่โรงงานชั่ง × ราคา/กก. · ถ้าบิลจริงไม่ตรง (เช่น หักความชื้น) พิมพ์ยอดเองได้</p>
+        <template v-else>
+          <div class="row">
+            <BaseInput v-model="form.factoryPricePerKg" label="ราคาโรงงาน (บาท/กก. ยางแห้ง)" inputmode="decimal" placeholder="เช่น 70.00" :format="(v) => sanitizeDecimal(v, 2)" :error="err('factoryPricePerKg')" />
+            <BaseInput v-model="form.factoryDrcPct" label="DRC (%)" inputmode="decimal" placeholder="เช่น 55" :format="(v) => sanitizeDecimal(v, 2)" :error="err('factoryDrcPct')" />
+          </div>
+          <BaseInput :model-value="form.factoryAmount" label="ยอดเงินตามบิล (บาท)" inputmode="decimal" placeholder="คำนวณให้อัตโนมัติ" :format="onAmount" @update:model-value="(v) => (form.factoryAmount = v)" />
+        </template>
+        <p v-if="!drcMode" class="hint">ยอดบิล = น้ำหนักสุทธิที่โรงงานชั่ง × ราคา/กก. · ถ้าบิลจริงไม่ตรง (เช่น หักความชื้น) พิมพ์ยอดเองได้</p>
+        <p v-else class="hint">ยอดบิล = น้ำหนักสุทธิที่โรงงานชั่ง × DRC% × ราคา/กก.<template v-if="wetPrice != null"> (เทียบเท่า {{ formatMoney(wetPrice) }} บาท/กก. น้ำหนักที่ชั่ง)</template> · ถ้าบิลจริงไม่ตรง พิมพ์ยอดเองได้</p>
 
         <BaseInput v-model="form.note" label="หมายเหตุ (ถ้ามี)" placeholder="เช่น ทะเบียนรถ / ชื่อโรงงาน" :maxlength="200" />
 
@@ -390,4 +508,13 @@ h1 { font-size: 24px; font-weight: 800; letter-spacing: -.4px; color: var(--slat
 .tile em { display: block; font-style: normal; font-size: 11px; color: var(--slate-500); margin-top: 2px; }
 .srcs { max-width: 180px; } .schip { display: inline-block; margin: 1px 3px 1px 0; padding: 1px 8px; border-radius: 9999px; font-size: 11px; font-weight: 600; background: #f0fdf4; color: #15803d; border: 1px solid #86efac; } .schip.old { background: #f5f3ff; color: #6d28d9; border-color: #c4b5fd; }
 .muted { color: var(--slate-400); }
+.tile--foam { text-decoration: none; color: inherit; border-left: 4px solid #d97706; }
+.drafts { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 12px; }
+.drafts__lead { font-size: 12px; font-weight: 700; color: var(--slate-500); }
+.dchip { display: inline-flex; align-items: center; border-radius: 9999px; border: 1px solid #fcd34d; background: var(--amber-50); color: var(--amber-700); font-size: 12px; font-weight: 600; overflow: hidden; }
+.dchip button { display: inline-flex; align-items: center; gap: 6px; height: 28px; color: inherit; }
+.dchip--ship { border-color: #93c5fd; background: var(--blue-50); color: var(--blue-700); }
+.dchip--ship .dchip__x:hover, .dchip--ship .dchip__open:hover { background: var(--blue-100); }
+.dchip__open { padding: 0 6px 0 13px; } .dchip__open:hover { background: #fef3c7; }
+.dchip__x { width: 28px; justify-content: center; } .dchip__x:hover { background: #fde68a; }
 </style>

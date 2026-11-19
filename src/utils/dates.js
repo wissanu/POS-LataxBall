@@ -11,6 +11,12 @@ export const addDays = (s, n) => {
   return d.toISOString().slice(0, 10)
 }
 
+/** วันที่ 1 ของเดือนที่ `s` (YYYY-MM-DD) อยู่ */
+export const monthStart = (s = bangkokDate()) => `${s.slice(0, 8)}01`
+
+/** ตัวกรองช่วงเวลามาตรฐานทุกหน้า: 'today' = วันนี้ · 'month' = เดือนนี้ (วันที่ 1 → วันนี้) -> [from, to] (เวลาไทย) */
+export const presetRange = (v, today = bangkokDate()) => (v === 'month' ? [monthStart(today), today] : [today, today])
+
 /** เวลา (ms) ของเที่ยงคืนเวลาไทยที่จะมาถึง นับจากวันที่ `today` (YYYY-MM-DD) */
 export const nextBangkokMidnight = (today) => Date.parse(`${addDays(today, 1)}T00:00:00+07:00`)
 

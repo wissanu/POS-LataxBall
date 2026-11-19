@@ -29,16 +29,19 @@ export const useCartStore = defineStore('cart', () => {
   const sharePct = ref('50') // ส่วนแบ่งลูกจ้างสวน (% ของผลผลิต) — ค่าเริ่มต้น 50 ปรับได้ต่อใบ
   const sharePctValid = computed(() => { const n = toNumber(sharePct.value); return n > 0 && n <= 100 })
   const memberId = ref(null)
+  const customerName = ref('') // ชื่อลูกค้า (เฉพาะลูกค้าทั่วไป/สวน — ไม่บังคับ) ไว้ดูย้อนหลังว่ายางของใคร
   const additions = ref([]) // { id, scope, mode, value }
 
   // ---- customer ----
+  const cleanName = computed(() => customerName.value.trim().replace(/\s+/g, ' '))
+  const nameOrUndef = () => cleanName.value || undefined // ไม่กรอก = ไม่ส่ง (ใบนั้น "ไม่ระบุชื่อ")
   const member = computed(() => members.items.find((m) => m.id === memberId.value) || null)
   const customer = computed(() =>
     customerType.value === 'member'
       ? { type: 'member', memberNo: member.value?.no ?? null, name: member.value?.name ?? null }
       : customerType.value === 'garden'
-        ? { type: 'garden', memberNo: null, name: 'สวน', sharePct: toNumber(sharePct.value) }
-        : { type: 'general', memberNo: null, name: 'ลูกค้าทั่วไป' },
+        ? { type: 'garden', memberNo: null, name: nameOrUndef(), sharePct: toNumber(sharePct.value) }
+        : { type: 'general', memberNo: null, name: nameOrUndef() },
   )
 
   // ---- weights & amounts ----
@@ -121,12 +124,14 @@ export const useCartStore = defineStore('cart', () => {
     sharePct.value = '50'
     holdStatus.value = 'SAME_DAY'
     memberId.value = null
+    customerName.value = ''
   }
 
-  /** status: 'pending' (Bill & Print) | 'draft' */
-  async function submit(status = 'pending') {
+  /** status: 'pending' (Bill & Print) | 'draft' · billDate = 'YYYY-MM-DD' ทำบิลย้อนหลัง (ไม่ส่ง = วันนี้) */
+  async function submit(status = 'pending', billDate) {
     const order = await orderService.create({
       status,
+      ...(billDate ? { billDate } : {}),
       customer: customer.value,
       holdStatus: holdStatus.value,
       items: lines.value.map((l) => ({ productId: l.productId, containerId: l.containerId, gross: toNumber(l.gross) })),
@@ -143,7 +148,7 @@ export const useCartStore = defineStore('cart', () => {
 
   return {
     holdStatus, sharePct, sharePctValid, grossTotal, shareDeduction,
-    lines, customerType, memberId, member, customer, additions, additionRows,
+    lines, customerType, memberId, customerName, cleanName, member, customer, additions, additionRows,
     tareOf, netOf, amountOf, totalNet, subtotal, lineAdditionOf, additionAmount, total, linesOf,
     addAddition, updateAddition, removeAddition,
     setGroup, setGross, removeLine, clear, reset, submit,

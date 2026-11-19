@@ -12,9 +12,12 @@ import { http } from './http'
 // PUT  /price-board/today          { prices: { A: 29.5, 'B+': 28, ... } }  -> same (สร้างต้องครบทุกเกรด / แก้ส่งบางเกรดได้)
 // POST /price-board/sync-yesterday                                          -> same (ชื่อเดิม: sync จากเมื่อวาน หรือวันเปิดทำการล่าสุดถ้าเมื่อวานร้านหยุด)
 // POST /price-board/today/discard  { itemIds: [uuid] }                      -> same
+//
+// ทำบิลย้อนหลัง: save / syncYesterday / discard รับ date (YYYY-MM-DD, วันที่ผ่านมาแล้ว) — ไม่ส่ง = วันนี้
+//   sync ของวันย้อนหลัง: ต้นทาง = วันเปิดทำการล่าสุดก่อนวันนั้น
 export const priceBoardService = {
   get: (date) => http.get('/price-board', { params: date ? { date } : undefined }).then((r) => r.data),
-  save: (prices) => http.put('/price-board/today', { prices }).then((r) => r.data),
-  syncYesterday: () => http.post('/price-board/sync-yesterday').then((r) => r.data),
-  discard: (itemIds) => http.post('/price-board/today/discard', { itemIds }).then((r) => r.data),
+  save: (prices, date) => http.put('/price-board/today', { prices, ...(date ? { date } : {}) }).then((r) => r.data),
+  syncYesterday: (date) => http.post('/price-board/sync-yesterday', date ? { date } : {}).then((r) => r.data),
+  discard: (itemIds, date) => http.post('/price-board/today/discard', { itemIds, ...(date ? { date } : {}) }).then((r) => r.data),
 }

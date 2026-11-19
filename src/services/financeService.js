@@ -2,7 +2,7 @@ import { http } from './http'
 
 // รายรับ-รายจ่าย-กำไร — สิทธิ์: transport.read (ดู) / transport.create (บันทึกค่าใช้จ่าย) = MANAGER และ ADMIN
 //
-// GET /finance/daily?date=YYYY-MM-DD   (แผง "สรุปกำไรประจำวัน" ในหน้า Orders)
+// GET /finance/daily?date=YYYY-MM-DD   (แผง "สรุปกำไร" › แท็บ "สรุปยอดวันนี้" ในหน้าบิล)
 //   -> { date,
 //        purchaseTotal, purchaseKg, bills,                       // ซื้อยางจากลูกค้า: ใบรับซื้อสถานะ complete ของวันนั้น
 //        trips, billTrips, shippedKg, factoryNetKg, revenue,     // เที่ยวขนส่งของวันนั้น · billTrips = เที่ยวที่กรอกยอดบิลโรงงานแล้ว · revenue = ผลรวม factoryAmount
@@ -13,7 +13,7 @@ import { http } from './http'
 //   -> { range: { from, to, groupBy, days },
 //        summary: { revenue, purchase, labor, transport, other, shippedKg, factoryNetKg, trips, billTrips },
 //        series:  [{ key, from, revenue, purchase, labor, transport, other }] }   // ช่วงที่ไม่มีข้อมูลเป็น 0 · กำไร/รวมรายจ่ายคำนวณที่ front-end (utils/finance.js)
-// GET /finance/range?from&to   (แท็บ "ช่วงวัน / ยางค้างคืน" ของแผงสรุปกำไร) — ต้นทุนยางที่ขายคิดแบบเข้าก่อนออกก่อน (FIFO)
+// GET /finance/range?from&to   (แท็บ "สรุปยอดงบดุล" ของแผงสรุปกำไร) — ต้นทุนยางที่ขายคิดแบบเข้าก่อนออกก่อน (FIFO)
 //   -> { range: { from, to, days },
 //        summary: { purchaseKg, purchaseTotal, bills, trips, billTrips, unbilledTrips, shippedKg, factoryNetKg,
 //                   revenue, cogs, labor, transport, other, profit, cashProfit, uncoveredKg },

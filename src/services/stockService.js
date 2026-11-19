@@ -10,7 +10,8 @@ import { http } from './http'
 //        cupKg / foamKg = น้ำหนักที่ "ยังไม่ได้ขาย" (ยางก้อนถ้วย / ขี้ฟอง) · partial = ขายไปบางส่วนแล้ว (เช่น ขายยางก้อนถ้วยแล้ว เหลือขี้ฟอง)
 // PATCH /stock/hold-status   { purchaseIds: string[], status: 'SAME_DAY'|'OVERNIGHT' }  -> { updated }
 export const stockService = {
-  unsold: (tripId) => http.get('/stock/unsold', { params: tripId ? { tripId } : {} }).then((r) => r.data),
+  // draftId = ฉบับร่างที่กำลังเปิดแก้ (ใบที่ฉบับร่างนี้จองไว้ไม่ถือว่าถูกล็อก) · แต่ละใบมี cupLock / foamLock = id ฉบับร่างอื่นที่จองไว้ ("กำลังจัดส่ง") หรือ null
+  unsold: (tripId, draftId) => http.get('/stock/unsold', { params: { ...(tripId ? { tripId } : {}), ...(draftId ? { draftId } : {}) } }).then((r) => r.data),
   setHold: (purchaseIds, status) => http.patch('/stock/hold-status', { purchaseIds, status }).then((r) => r.data),
 }
 export const HOLD = { SAME_DAY: 'ขายต่อวัน', OVERNIGHT: 'ค้างคืน' }

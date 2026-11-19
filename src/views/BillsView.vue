@@ -1,24 +1,23 @@
 <script setup>
 // บิล: บิลขายโรงงาน (1 เที่ยวขนส่ง = 1 บิล เลขที่ SAL-วันที่ขาย-เที่ยว) อ้างอิงว่ายางซื้อมาวันไหน ราคาวันนั้นเท่าไร
 //   ขายวันที่ 9 แต่ยางซื้อวันที่ 3,4,5 → ค้นวันที่ 3 / 4 / 5 (ค้นตาม "วันที่ซื้อยาง") เจอบิลรวบยอดใบเดียวกัน
-//   แผง "สรุปกำไร" (รายวัน + ช่วงวัน/ยางค้างคืน) อยู่ที่หน้านี้ เพราะเป็นเรื่องของบิลขายโรงงาน
+//   แผง "สรุปกำไร" (สรุปยอดวันนี้ + สรุปยอดงบดุล) อยู่ที่หน้านี้ เพราะเป็นเรื่องของบิลขายโรงงาน
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import DailyProfitPanel from '@/components/DailyProfitPanel.vue'
 import { billsService } from '@/services/billsService'
 import { getErrorMessage } from '@/services/http'
-import { addDays, bangkokDate, formatThaiDate } from '@/utils/dates'
+import { bangkokDate, formatThaiDate, monthStart } from '@/utils/dates'
 import { productLabel } from '@/utils/finance'
 import { formatKg, formatMoney, formatNumber } from '@/utils/format'
 
 const today = bangkokDate()
 const PRESETS = [
-  { v: '7d', label: '7 วัน', from: () => addDays(today, -6) },
-  { v: '30d', label: '30 วัน', from: () => addDays(today, -29) },
   { v: 'today', label: 'วันนี้', from: () => today },
+  { v: 'month', label: 'เดือนนี้', from: () => monthStart(today) },
 ]
-const preset = ref('7d')
-const range = reactive({ from: addDays(today, -6), to: today })
+const preset = ref('month')
+const range = reactive({ from: monthStart(today), to: today })
 const basis = ref('buy') // buy = ค้นตามวันที่ซื้อยาง · sale = ค้นตามวันที่ขายให้โรงงาน
 const q = ref('')
 const data = ref(null)
@@ -56,6 +55,16 @@ function jumpTo(id) {
 const dayFmt = new Intl.DateTimeFormat('th-TH', { day: 'numeric', month: 'short' })
 const sd = (d) => dayFmt.format(new Date(`${d}T00:00:00`))
 const matched = (s, d) => s.matchedDates.includes(d)
+// ขายต่อวัน / ยางค้างคืน: นับจำนวนคืนจาก (วันที่ขาย − วันที่ซื้อยางต้นทาง) ของแต่ละกอง — ซื้อและขายวันเดียวกัน = 0 คืน
+const nightsOf = (saleDate, buyDate) => Math.round((new Date(`${saleDate}T00:00:00Z`) - new Date(`${buyDate}T00:00:00Z`)) / 86400000)
+function holdOf(s) {
+  if (!s.sources.length) return null // เที่ยวเก่าที่ไม่ได้ระบุยางต้นทาง: บอกไม่ได้
+  const ns = s.sources.map((x) => Math.max(0, nightsOf(s.saleDate, x.date)))
+  const max = Math.max(...ns), min = Math.min(...ns)
+  if (max === 0) return { kind: 'day', text: 'ขายต่อวัน' }
+  return { kind: 'night', text: `ยางค้างคืน · ${min === max ? `${max} คืน` : `${min}–${max} คืน`}`, mixed: min === 0 }
+}
+const nightsLabel = (s, d) => { const n = nightsOf(s.saleDate, d); return n > 0 ? ` · ${n} คืน` : ' · วันเดียวกัน' }
 const billTotal = computed(() => ({
   count: sales.value.length,
   amount: sales.value.reduce((a, s) => a + (s.factoryAmount ?? 0), 0),
@@ -133,8 +142,9 @@ const billTotal = computed(() => ({
               <span class="chev" :class="{ up: open.has(s.id) }">▸</span>
               <b class="no">{{ s.no }}</b>
               <span class="when">ขาย {{ formatThaiDate(s.saleDate) }} · เที่ยวที่ {{ s.tripNo }}<template v-if="s.productType === 'FOAM'"> · <em>ขี้ฟอง</em></template></span>
+              <span v-if="holdOf(s)" class="hold" :class="`hold--${holdOf(s).kind}`" :title="holdOf(s).mixed ? 'มียางที่ซื้อวันเดียวกับวันขายปนอยู่ด้วย' : undefined">{{ holdOf(s).text }}</span>
               <span class="src">
-                <template v-if="s.sources.length"><span v-for="x in s.sources" :key="x.date" class="schip" :class="{ hit: matched(s, x.date) && basis === 'buy' }">ซื้อ {{ sd(x.date) }}</span></template>
+                <template v-if="s.sources.length"><span v-for="x in s.sources" :key="x.date" class="schip" :class="{ hit: matched(s, x.date) && basis === 'buy' }">ซื้อ {{ sd(x.date) }}{{ nightsLabel(s, x.date) }}</span></template>
                 <span v-else class="muted">ไม่ได้ระบุยางต้นทาง</span>
               </span>
               <span class="num">ยอดบิล <b>{{ s.factoryAmount != null ? formatMoney(s.factoryAmount) : 'รอบิล' }}</b></span>
@@ -142,13 +152,14 @@ const billTotal = computed(() => ({
             </button>
 
             <div v-if="open.has(s.id)" class="sale__body">
-              <p class="meta">ส่ง {{ formatKg(s.shippedKg) }} → โรงงานชั่งได้ {{ formatKg(s.factoryNetKg) }} (สูญเสีย {{ formatNumber(s.lossPct) }}%)<template v-if="s.factoryPricePerKg"> · ราคาโรงงาน {{ formatMoney(s.factoryPricePerKg) }}/กก.</template> · {{ productLabel(s.productType) }}</p>
-              <p v-if="s.legacy" class="muted">เที่ยวนี้บันทึกโดยไม่ได้เลือกยางต้นทาง — ต้นทุนคิดแบบเข้าก่อนออกก่อนในสรุปกำไร (ดูได้ที่แผงสรุปกำไร › ช่วงวัน)</p>
+              <p class="meta">ส่ง {{ formatKg(s.shippedKg) }} → โรงงานชั่งได้ {{ formatKg(s.factoryNetKg) }} (สูญเสีย {{ formatNumber(s.lossPct) }}%)<template v-if="s.factoryPricePerKg"> · ราคาโรงงาน {{ formatMoney(s.factoryPricePerKg) }}/กก.<template v-if="s.factoryDrcPct != null"> ยางแห้ง · DRC {{ formatNumber(s.factoryDrcPct) }}%</template></template> · {{ productLabel(s.productType) }}</p>
+              <p v-if="s.legacy" class="muted">เที่ยวนี้บันทึกโดยไม่ได้เลือกยางต้นทาง — ต้นทุนคิดแบบเข้าก่อนออกก่อนในสรุปกำไร (ดูได้ที่แผงสรุปกำไร › สรุปยอดงบดุล)</p>
               <table v-else class="tb tb--in">
-                <thead><tr><th>ยางที่ซื้อวันที่</th><th class="r">ใบ</th><th class="r">ก้อนถ้วย</th><th class="r">ขี้ฟอง</th><th class="r">ต้นทุน</th><th class="r">เฉลี่ย/กก.</th><th>ราคารับซื้อวันนั้น (เกรด @ ราคา · กก.)</th></tr></thead>
+                <thead><tr><th>ยางที่ซื้อวันที่</th><th class="r">ค้าง</th><th class="r">ใบ</th><th class="r">ก้อนถ้วย</th><th class="r">ขี้ฟอง</th><th class="r">ต้นทุน</th><th class="r">เฉลี่ย/กก.</th><th>ราคารับซื้อวันนั้น (เกรด @ ราคา · กก.)</th></tr></thead>
                 <tbody>
                   <tr v-for="x in s.sources" :key="x.date" :class="{ hit: matched(s, x.date) && basis === 'buy' }">
                     <td><b>{{ formatThaiDate(x.date) }}</b></td>
+                    <td class="r"><span class="hold" :class="nightsOf(s.saleDate, x.date) > 0 ? 'hold--night' : 'hold--day'">{{ nightsOf(s.saleDate, x.date) > 0 ? `${nightsOf(s.saleDate, x.date)} คืน` : 'วันเดียวกัน' }}</span></td>
                     <td class="r">{{ x.bills }}</td>
                     <td class="r">{{ formatNumber(x.cupKg) }}</td>
                     <td class="r">{{ x.foamKg > 0 ? formatNumber(x.foamKg) : '–' }}</td>
@@ -157,7 +168,7 @@ const billTotal = computed(() => ({
                     <td class="lines"><span v-for="l in x.lines" :key="l.grade + l.price" class="ln">{{ l.grade }} @{{ formatNumber(l.price) }} · {{ formatNumber(l.kg) }} กก.</span></td>
                   </tr>
                 </tbody>
-                <tfoot><tr><td colspan="4">รวมต้นทุนยางที่ขาย</td><td class="r"><b>{{ formatMoney(s.cost) }}</b></td><td colspan="2" class="r">ยอดบิล {{ s.factoryAmount != null ? formatMoney(s.factoryAmount) : '–' }} → กำไรขั้นต้น <b>{{ s.profit != null ? formatMoney(s.profit) : '–' }}</b></td></tr></tfoot>
+                <tfoot><tr><td colspan="5">รวมต้นทุนยางที่ขาย</td><td class="r"><b>{{ formatMoney(s.cost) }}</b></td><td colspan="2" class="r">ยอดบิล {{ s.factoryAmount != null ? formatMoney(s.factoryAmount) : '–' }} → กำไรขั้นต้น <b>{{ s.profit != null ? formatMoney(s.profit) : '–' }}</b></td></tr></tfoot>
               </table>
             </div>
           </li>
@@ -197,4 +208,7 @@ const billTotal = computed(() => ({
 .sale__body { padding: 4px 14px 12px; display: flex; flex-direction: column; gap: 8px; background: #fff; border-top: 1px solid var(--slate-100); }
 .meta { font-size: 12px; color: var(--slate-600); } .lines { display: flex; flex-wrap: wrap; gap: 4px; } .ln { padding: 1px 8px; border-radius: 6px; background: var(--slate-50); border: 1px solid var(--slate-100); font-size: 11px; white-space: nowrap; }
 .tb--in { border: 1px solid var(--slate-100); border-radius: 8px; overflow: hidden; }
+.hold { display: inline-block; padding: 2px 10px; border-radius: 9999px; font-size: 11px; font-weight: 700; white-space: nowrap; border: 1px solid; }
+.hold--day { background: var(--blue-50); color: var(--blue-700); border-color: #93c5fd; }
+.hold--night { background: #f5f3ff; color: #6d28d9; border-color: #c4b5fd; }
 </style>

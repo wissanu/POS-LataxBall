@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import AppIcon from './AppIcon.vue'
-import { useOrderStore } from '@/stores/orders'
+import { SALE_FILTERS, useOrderStore } from '@/stores/orders'
 import { useSearchStore } from '@/stores/search'
 import { orderService } from '@/services/orderService'
 import { addDays, bangkokDate } from '@/utils/dates'
@@ -21,7 +21,7 @@ const find = useSearchStore()
 
 const mode = computed(() => (route.name === 'orders' ? 'orders' : route.name === 'new-order' ? 'grades' : 'off'))
 const placeholder = computed(() => ({
-  orders: 'ค้นหาลูกค้า / เลขที่ใบรับซื้อ / ช่วงวันเวลา',
+  orders: 'ค้นหาลูกค้า / ชื่อ / เลขที่ใบ / ขายแล้ว-ยังไม่ขาย / ช่วงวันเวลา',
   grades: 'ค้นหาเกรด เช่น A+, B, C+',
   off: 'ค้นหาได้ที่หน้า Order List และ New Order',
 }[mode.value]))
@@ -68,10 +68,29 @@ watch(text, (v) => {
 })
 
 const noText = computed(() => text.value.trim().replace(/^#/, ''))
-const rows = computed(() => [...(noText.value ? [{ kind: 'no' }] : []), ...results.value.map((c) => ({ kind: 'customer', c }))])
+// สถานะการขาย: พิมพ์ "ขาย" / "ยังไม่ขาย" / "จัดส่ง" ... แล้วเลือกเพื่อกรองใบที่ขายแล้ว/ยังไม่ขาย (ตัวเลือกเดียวกับเมนู Filter)
+const SALE_WORDS = { unsold: 'ยังไม่ขาย ไม่ขาย รอ จัดส่ง', waiting: 'รอจัดส่ง รอ ยังไม่ขาย', shipping: 'กำลังจัดส่ง จัดส่ง ส่ง ขนส่ง', sold: 'ขายเรียบร้อยแล้ว ขายแล้ว ขาย เรียบร้อย' }
+const saleRows = computed(() => {
+  const t = text.value.trim()
+  if (!t) return []
+  return SALE_FILTERS.filter((f) => f.v !== 'all' && (f.label.includes(t) || (SALE_WORDS[f.v] ?? '').split(' ').some((w) => w && (w.includes(t) || t.includes(w)))))
+})
+const rows = computed(() => [
+  ...(noText.value ? [{ kind: 'no' }] : []),
+  ...saleRows.value.map((f) => ({ kind: 'sale', f })),
+  ...results.value.map((c) => ({ kind: 'customer', c })),
+])
+const rowKey = (c) => c.id ?? `n:${c.base}:${c.name}`
 
+function pickSale(f) {
+  orders.setSaleFilter(f.v)
+  text.value = ''
+  open.value = false
+}
 function pickCustomer(c) {
-  orders.applySearch({ customer: { id: c.id, name: c.name, code: c.code, type: c.type } })
+  orders.applySearch({ customer: c.type === 'named'
+    ? { id: null, named: true, name: c.name, code: null, type: 'named', base: c.base }
+    : { id: c.id, name: c.name, code: c.code, type: c.type } })
   text.value = ''
   open.value = false
 }
@@ -81,7 +100,7 @@ function applyNo() {
   text.value = ''
   open.value = false
 }
-function choose(row) { row.kind === 'no' ? applyNo() : pickCustomer(row.c) }
+function choose(row) { row.kind === 'no' ? applyNo() : row.kind === 'sale' ? pickSale(row.f) : pickCustomer(row.c) }
 function onKey(e) {
   if (mode.value !== 'orders') return
   if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
@@ -96,6 +115,7 @@ function onKey(e) {
     const picked = rows.value[active.value]
     if (picked) choose(picked)
     else if (/\d/.test(noText.value)) applyNo()
+    else if (saleRows.value.length === 1 && !results.value.length) pickSale(saleRows.value[0])
     else if (results.value.length === 1) pickCustomer(results.value[0])
   }
 }
@@ -159,18 +179,33 @@ onBeforeUnmount(() => {
         </button>
       </section>
 
+      <section v-if="saleRows.length || !text.trim()" class="sec">
+        <h5>สถานะการขาย <small>(เลือกเพื่อดูเฉพาะใบที่ขายแล้ว / ยังไม่ขาย)</small></h5>
+        <div v-if="!text.trim()" class="presets">
+          <button v-for="f in SALE_FILTERS.filter((x) => x.v !== 'all')" :key="f.v" type="button" :class="{ on: orders.saleFilter === f.v }" @click="pickSale(f)">{{ f.label.replace(' (รอจัดส่ง + กำลังจัดส่ง)', '') }}</button>
+        </div>
+        <ul v-else class="list" role="listbox">
+          <li v-for="(f, i) in saleRows" :key="f.v">
+            <button type="button" class="row" role="option" :class="{ 'row--on': active === i + (noText ? 1 : 0) }" @click="pickSale(f)">
+              <span class="ico"><AppIcon name="truck" :size="15" /></span>
+              <span class="row__main"><b>{{ f.label }}</b><small>กรองใบรับซื้อตามสถานะการขายให้โรงงาน</small></span>
+            </button>
+          </li>
+        </ul>
+      </section>
+
       <section class="sec">
         <h5>ลูกค้า <small>(เลือกเพื่อดูใบรับซื้อของลูกค้าคนนั้นทั้งหมด)</small></h5>
         <p v-if="!text.trim()" class="hint">พิมพ์ชื่อ รหัส หรือเบอร์โทรลูกค้า</p>
         <p v-else-if="searching" class="hint">กำลังค้นหา…</p>
         <p v-else-if="!results.length" class="hint">ไม่พบลูกค้าที่ตรงกับ “{{ text.trim() }}”</p>
         <ul v-else class="list" role="listbox">
-          <li v-for="(c, i) in results" :key="c.id">
-            <button type="button" class="row" role="option" :class="{ 'row--on': active === i + (noText ? 1 : 0) }" @click="pickCustomer(c)">
+          <li v-for="(c, i) in results" :key="rowKey(c)">
+            <button type="button" class="row" role="option" :class="{ 'row--on': active === i + (noText ? 1 : 0) + saleRows.length }" @click="pickCustomer(c)">
               <span class="av">{{ firstLetter(c.name) }}</span>
               <span class="row__main">
                 <b>{{ c.name }}</b>
-                <small>{{ c.type === 'general' ? 'ลูกค้าทั่วไป (ไม่ใช่ลูกค้าประจำ)' : c.type === 'garden' ? 'สวน (ผลผลิตจากสวนของร้าน)' : [c.code, c.phone, c.address].filter(Boolean).join(' · ') }}</small>
+                <small>{{ c.type === 'named' ? `ชื่อที่กรอกตอนรับซื้อ · ${c.base === 'garden' ? 'สวน' : 'ลูกค้าทั่วไป'}` : c.type === 'general' ? 'ลูกค้าทั่วไป (ไม่ใช่ลูกค้าประจำ)' : c.type === 'garden' ? 'สวน (ผลผลิตจากสวนของร้าน)' : [c.code, c.phone, c.address].filter(Boolean).join(' · ') }}</small>
               </span>
               <span class="cnt">{{ c.orderCount }} ใบ</span>
             </button>
@@ -234,4 +269,5 @@ h5 small { text-transform: none; font-weight: 500; letter-spacing: 0; color: var
 .err { margin-top: 6px; font-size: 11px; color: #dc2626; }
 .apply { margin-top: 10px; width: 100%; height: 34px; border-radius: var(--radius-md); background: var(--blue-600); color: #fff; font-size: 12px; font-weight: 600; }
 .apply:disabled { opacity: .45; cursor: not-allowed; }
+.presets button.on { background: var(--blue-50); color: var(--blue-700); border-color: var(--blue-100); font-weight: 700; }
 </style>

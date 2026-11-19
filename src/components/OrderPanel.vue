@@ -5,9 +5,11 @@ import BaseButton from './BaseButton.vue'
 import AdditionModal from './AdditionModal.vue'
 import { useCartStore } from '@/stores/cart'
 import { useMemberStore } from '@/stores/members'
+import { usePriceBoardStore } from '@/stores/priceBoard'
 import { useToast } from '@/composables/useToast'
 import { getErrorMessage } from '@/services/http'
 import { formatMoney, formatNumber, formatKg, round2, sanitizeDecimal, toNumber } from '@/utils/format'
+import { formatThaiDate } from '@/utils/dates'
 
 /**
  * แผงรายการปัจจุบัน (ขวา) — แสดงผลเป็นข้อความทั้งหมด
@@ -18,6 +20,7 @@ import { formatMoney, formatNumber, formatKg, round2, sanitizeDecimal, toNumber 
  */
 const cart = useCartStore()
 const members = useMemberStore()
+const board = usePriceBoardStore()
 const toast = useToast()
 
 const collapsed = ref(false)
@@ -60,8 +63,8 @@ onMounted(() => members.load())
 const pct = (v) => String(Math.round(toNumber(v) * 100) / 100)
 const badge = computed(() => (cart.customerType === 'member' ? cart.member?.no ?? '—' : null))
 const customerText = computed(() => {
-  if (cart.customerType === 'general') return { tag: 'ลูกค้าทั่วไป', name: '', ok: true }
-  if (cart.customerType === 'garden') return { tag: 'สวน', name: cart.sharePctValid ? `จ่ายลูกจ้าง ${pct(cart.sharePct)}% ของผลผลิต` : 'ใส่เปอร์เซ็นต์ส่วนแบ่งให้ถูกต้อง', ok: cart.sharePctValid }
+  if (cart.customerType === 'general') return { tag: 'ลูกค้าทั่วไป', name: cart.cleanName || '(ไม่ระบุชื่อ)', ok: true }
+  if (cart.customerType === 'garden') return { tag: 'สวน', name: `${cart.cleanName ? `${cart.cleanName} · ` : ''}${cart.sharePctValid ? `จ่ายลูกจ้าง ${pct(cart.sharePct)}% ของผลผลิต` : 'ใส่เปอร์เซ็นต์ส่วนแบ่งให้ถูกต้อง'}`, ok: cart.sharePctValid }
   return cart.member
     ? { tag: 'ลูกค้าประจำ', name: `${cart.member.no} ${cart.member.name}`, ok: true }
     : { tag: 'ลูกค้าประจำ', name: 'ยังไม่ได้เลือกลูกค้า', ok: false }
@@ -112,8 +115,8 @@ async function send(status, message) {
   }
   busy.value = true
   try {
-    const order = await cart.submit(status)
-    toast.success(`${message} · #${order.no}`)
+    const order = await cart.submit(status, board.isBackdated ? board.date : undefined) // ย้อนหลัง: ลงบิลเป็นวันที่ที่เลือก
+    toast.success(`${message} · #${order.no}${board.isBackdated ? ` (ลงบิลวันที่ ${formatThaiDate(board.date)})` : ''}`)
   } catch (e) {
     toast.error(getErrorMessage(e, 'บันทึกรายการไม่สำเร็จ'))
   } finally {
@@ -139,6 +142,8 @@ async function send(status, message) {
         <AppIcon name="chevron-right" />
       </button>
     </header>
+
+      <p v-if="board.isBackdated" class="backbill" role="status"><AppIcon name="clock" :size="13" /> บิลย้อนหลัง · ลงวันที่ <b>{{ formatThaiDate(board.date) }}</b></p>
 
       <!-- ลูกค้า: ข้อความอย่างเดียว (เลือกที่หน้าต่างเกรด) -->
       <section class="customer" aria-label="ลูกค้า">
@@ -333,4 +338,5 @@ tbody td.c { text-align: center; color: var(--slate-500); }
 .summary .total dt { font-size: 14px; font-weight: 700; color: var(--slate-900); }
 .summary .total dd { font-size: 20px; font-weight: 700; color: var(--blue-600); }
 .actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 8px; padding-top: 12px; }
+.backbill { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; padding: 6px 12px; border-radius: var(--radius-md); background: var(--amber-50); border: 1px solid #fcd34d; font-size: 12px; font-weight: 600; color: var(--amber-700); } .backbill b { color: var(--amber-700); font-weight: 800; }
 </style>

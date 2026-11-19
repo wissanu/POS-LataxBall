@@ -134,7 +134,7 @@ async function submit() {
   busy.value = true
   try {
     await board.save(payload)
-    toast.success(editing.value ? 'บันทึกราคาของวันนี้แล้ว' : 'สร้างข้อมูลของวันนี้แล้ว')
+    toast.success(editing.value ? `บันทึกราคา${board.isBackdated ? `ของวันที่ ${formatThaiDate(board.date)}` : 'ของวันนี้'}แล้ว` : `สร้างข้อมูล${board.isBackdated ? `ของวันที่ ${formatThaiDate(board.date)}` : 'ของวันนี้'}แล้ว`)
     emit('update:modelValue', false)
   } catch (e) {
     serverError.value = getErrorMessage(e, 'บันทึกไม่สำเร็จ ลองอีกครั้ง')
@@ -146,7 +146,7 @@ async function submit() {
 
 <template>
   <BaseModal
-    :model-value="modelValue" :title="editing ? 'แก้ราคารับซื้อวันนี้' : 'ตั้งราคารับซื้อวันนี้'"
+    :model-value="modelValue" :title="editing ? `แก้ราคารับซื้อ${board.isBackdated ? 'ย้อนหลัง' : 'วันนี้'}` : `ตั้งราคารับซื้อ${board.isBackdated ? 'ย้อนหลัง' : 'วันนี้'}`"
     :subtitle="`ประจำวันที่ ${formatThaiDate(board.date)} · ราคาต่อกิโลกรัม แยกตามประเภทสินค้า`" width="580px" @update:model-value="emit('update:modelValue', $event)"
   >
     <form id="price-board-form" class="form" novalidate @submit.prevent="submit">
@@ -217,13 +217,13 @@ async function submit() {
         </section>
       </template>
 
-      <p v-if="editing" class="hint">เกรดที่ไม่ได้เลือกราคาเลยจะคงราคาเดิม · เกรดที่ติ๊กออกบางราคา ราคานั้นจะถูกเอาออกจากวันนี้ (เกรดที่ discard ไว้จะกลับมาเมื่อเลือกราคา)</p>
+      <p v-if="editing" class="hint">เกรดที่ไม่ได้เลือกราคาเลยจะคงราคาเดิม · เกรดที่ติ๊กออกบางราคา ราคานั้นจะถูกเอาออกจาก{{ board.isBackdated ? 'วันนี้ที่เลือก' : 'วันนี้' }} (เกรดที่ discard ไว้จะกลับมาเมื่อเลือกราคา)</p>
       <p v-if="serverError" class="alert" role="alert">{{ serverError }}</p>
     </form>
 
     <template #footer>
       <BaseButton variant="soft" size="lg" @click="emit('update:modelValue', false)">ยกเลิก</BaseButton>
-      <BaseButton type="submit" form="price-board-form" size="lg" :loading="busy">{{ editing ? 'บันทึก' : 'สร้างข้อมูลวันนี้' }}</BaseButton>
+      <BaseButton type="submit" form="price-board-form" size="lg" :loading="busy">{{ editing ? 'บันทึก' : board.isBackdated ? 'สร้างข้อมูลวันนั้น' : 'สร้างข้อมูลวันนี้' }}</BaseButton>
     </template>
   </BaseModal>
 </template>

@@ -13,6 +13,7 @@ const routes = [
     children: [
       { path: '', redirect: { name: 'new-order' } },
       { path: 'reports', name: 'reports', component: () => import('@/views/ReportsView.vue'), meta: { requiresAuth: true, title: 'รายงานภาพรวม', permission: 'report.view' } },
+      { path: 'estimate', name: 'estimate', component: () => import('@/views/EstimateView.vue'), meta: { requiresAuth: true, title: 'ประเมินราคา', permission: 'report.view' } },
       { path: 'new-order', name: 'new-order', component: () => import('@/views/NewOrderView.vue'), meta: { requiresAuth: true, title: 'New Order', permission: 'purchase.create' } },
       { path: 'orders', name: 'orders', component: () => import('@/views/OrderListView.vue'), meta: { requiresAuth: true, title: 'Orders', permission: 'purchase.read' } },
       { path: 'stock', name: 'stock', component: () => import('@/views/StockView.vue'), meta: { requiresAuth: true, title: 'ยางรอขาย', permission: 'transport.read' } },

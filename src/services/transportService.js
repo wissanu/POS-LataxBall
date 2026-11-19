@@ -2,6 +2,7 @@ import { http } from './http'
 
 // การขนส่งยางก้อนถ้วยไปโรงงาน: 1 แถว = 1 เที่ยว
 // Trip = { id, date: 'YYYY-MM-DD', tripNo, shippedKg, departAt: 'HH:mm', billAt: 'HH:mm', factoryNetKg, note,
+//          factoryDrcPct: number|null (DRC% — มีค่า = factoryPricePerKg เป็นราคาต่อ กก. ยางแห้ง ยอดบิล = น้ำหนักสุทธิ x DRC% x ราคา),
 //          factoryPricePerKg: number|null, factoryAmount: number|null   (ยอดเงินตามบิลโรงงาน — ใหม่ · ไม่บังคับ · null = ยังไม่กรอก),
 //          productType: 'CUP_LUMP'|'FOAM' (ค่าเริ่มต้น CUP_LUMP), stockKg: number|null (น้ำหนักตอนซื้อที่ตัดสต็อก · null = เท่ากับ shippedKg),
 //          durationMin, lossKg, lossPct, lossPctPerHour, createdAt }   (ฟิลด์ที่คำนวณ server เป็นผู้ส่งกลับ — ใช้สูตรเดียวกับ utils/transport.js)
@@ -28,4 +29,14 @@ export const transportService = {
   create: (payload) => http.post('/transports', payload).then((r) => r.data),
   update: (id, payload) => http.patch(`/transports/${id}`, payload).then((r) => r.data),
   remove: (id) => http.delete(`/transports/${id}`),
+}
+
+// ฉบับร่างเที่ยวขนส่ง (กรอกค้างแล้วปิดหน้าต่าง) — ใช้ร่วมกันทุกคนที่มีสิทธิ์การขนส่ง
+// Draft = { id, payload: {...ค่าในฟอร์ม}, createdAt, updatedAt, by }
+//   GET /transports/drafts · POST /transports/drafts { payload } · PATCH /transports/drafts/:id { payload } · DELETE /transports/drafts/:id
+export const transportDraftService = {
+  list: () => http.get('/transports/drafts').then((r) => r.data),
+  create: (payload) => http.post('/transports/drafts', { payload }).then((r) => r.data),
+  update: (id, payload) => http.patch(`/transports/drafts/${id}`, { payload }).then((r) => r.data),
+  remove: (id) => http.delete(`/transports/drafts/${id}`),
 }

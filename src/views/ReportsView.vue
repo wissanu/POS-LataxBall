@@ -14,20 +14,18 @@ import { calcProfit } from '@/utils/finance'
 import { useAuthStore } from '@/stores/auth'
 import { linearTrend, metricValue } from '@/utils/transport'
 import { getErrorMessage } from '@/services/http'
-import { formatKg, formatMoney, formatNumber, fromISODate, toISODate } from '@/utils/format'
+import { formatKg, formatMoney, formatNumber, fromISODate } from '@/utils/format'
+import { presetRange } from '@/utils/dates'
 
 const PRESETS = [
-  { v: '7', label: '7 วัน' },
-  { v: '30', label: '30 วัน' },
-  { v: '90', label: '90 วัน' },
+  { v: 'today', label: 'วันนี้' },
   { v: 'month', label: 'เดือนนี้' },
-  { v: 'year', label: 'ปีนี้' },
   { v: 'custom', label: 'กำหนดเอง' },
 ]
 const GROUPS = [{ v: 'day', label: 'รายวัน' }, { v: 'week', label: 'รายสัปดาห์' }, { v: 'month', label: 'รายเดือน' }]
 const METRICS = [{ v: 'total', label: 'ยอดเงิน' }, { v: 'netKg', label: 'น้ำหนัก (กก.)' }]
 
-const preset = ref('30')
+const preset = ref('month')
 const range = reactive({ from: '', to: '' })
 const groupBy = ref('day')
 const metric = ref('total')
@@ -49,13 +47,7 @@ const rangeError = computed(() => {
 function applyPreset(v) {
   preset.value = v
   if (v === 'custom') return
-  const today = new Date()
-  const from = new Date(today)
-  if (v === 'month') from.setDate(1)
-  else if (v === 'year') { from.setMonth(0); from.setDate(1) }
-  else from.setDate(today.getDate() - (Number(v) - 1))
-  range.from = toISODate(from)
-  range.to = toISODate(today)
+  ;[range.from, range.to] = presetRange(v)
   // a sensible grouping for the length of the range (still changeable by hand)
   const n = daysBetween(range.from, range.to)
   groupBy.value = n <= 45 ? 'day' : n <= 150 ? 'week' : 'month'
@@ -77,16 +69,15 @@ async function load() {
 }
 
 watch([() => range.from, () => range.to, groupBy, customer], load)
-onMounted(() => applyPreset('30')) // changing the range triggers the first load
+onMounted(() => applyPreset('month')) // changing the range triggers the first load
 
 // ================= ราคารับซื้อรายวัน (ความผันผวนของราคาที่ตั้งหน้าร้าน) =================
 const PRICE_PRESETS = [
-  { v: '7', label: '7 วัน' },
-  { v: '30', label: '1 เดือน' },
-  { v: '90', label: '3 เดือน' },
+  { v: 'today', label: 'วันนี้' },
+  { v: 'month', label: 'เดือนนี้' },
   { v: 'custom', label: 'กำหนดเอง' },
 ]
-const pricePreset = ref('30')
+const pricePreset = ref('month')
 const priceRange = reactive({ from: '', to: '' })
 const priceGrade = ref('all')
 const priceData = ref(null)
@@ -103,11 +94,7 @@ const priceRangeError = computed(() => {
 function applyPricePreset(v) {
   pricePreset.value = v
   if (v === 'custom') return
-  const today = new Date()
-  const from = new Date(today)
-  from.setDate(today.getDate() - (Number(v) - 1))
-  priceRange.from = toISODate(from)
-  priceRange.to = toISODate(today)
+  ;[priceRange.from, priceRange.to] = presetRange(v)
 }
 async function loadPrices() {
   if (priceRangeError.value) return
@@ -124,7 +111,7 @@ async function loadPrices() {
   }
 }
 watch([() => priceRange.from, () => priceRange.to, priceGrade], loadPrices)
-onMounted(() => applyPricePreset('30'))
+onMounted(() => applyPricePreset('month'))
 
 const priceStats = computed(() => priceData.value?.stats)
 const gradeName = (code) => priceData.value?.grades.find((g) => g.code === code)?.name ?? `เกรด ${code}`
@@ -144,9 +131,8 @@ const priceTiles = computed(() => {
 const auth = useAuthStore()
 const canTransport = computed(() => auth.can('transport.read'))
 const LOSS_PRESETS = [
-  { v: '30', label: '30 วัน' },
-  { v: '60', label: '60 วัน' },
-  { v: '90', label: '90 วัน' },
+  { v: 'today', label: 'วันนี้' },
+  { v: 'month', label: 'เดือนนี้' },
   { v: 'custom', label: 'กำหนดเอง' },
 ]
 const LOSS_METRICS = [
@@ -154,7 +140,7 @@ const LOSS_METRICS = [
   { v: 'avgKg', label: 'เฉลี่ย/เที่ยว (กก.)' },
   { v: 'lossPct', label: 'อัตรา (%)' },
 ]
-const lossPreset = ref('30')
+const lossPreset = ref('month')
 const lossRange = reactive({ from: '', to: '' })
 const lossGroup = ref('day')
 const lossMetric = ref('lossKg')
@@ -172,11 +158,7 @@ const lossRangeError = computed(() => {
 function applyLossPreset(v) {
   lossPreset.value = v
   if (v === 'custom') return
-  const today = new Date()
-  const from = new Date(today)
-  from.setDate(today.getDate() - (Number(v) - 1))
-  lossRange.from = toISODate(from)
-  lossRange.to = toISODate(today)
+  ;[lossRange.from, lossRange.to] = presetRange(v)
   const n = daysBetween(lossRange.from, lossRange.to)
   lossGroup.value = n <= 45 ? 'day' : n <= 150 ? 'week' : 'month'
 }
@@ -195,7 +177,7 @@ async function loadLoss() {
   }
 }
 watch([() => lossRange.from, () => lossRange.to, lossGroup], loadLoss)
-onMounted(() => canTransport.value && applyLossPreset('30'))
+onMounted(() => canTransport.value && applyLossPreset('month'))
 
 const LOSS_COLORS = { MORNING: '#d97706', AFTERNOON: '#2563eb' }
 const lossHasData = computed(() => !!lossData.value && Object.values(lossData.value.summary).some((s) => s.trips > 0))

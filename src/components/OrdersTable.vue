@@ -2,6 +2,7 @@
 import { reactive } from 'vue'
 import AppIcon from './AppIcon.vue'
 import { formatDateTime, formatMoney, formatNumber, initials } from '@/utils/format'
+import { SALE_STATES } from '@/stores/orders'
 
 /**
  * ตารางรายการรับซื้อ — 1 ใบ = 1 แถว สูงเท่ากันทุกแถว (แก้ปัญหาการ์ดสูงไม่เท่ากัน)
@@ -23,6 +24,16 @@ const toneOf = (id) => tones[[...String(id)].reduce((h, c) => (h * 31 + c.charCo
 const totalNet = (o) => o.items.reduce((s, it) => s + (Number(it.netWeight) || 0), 0)
 const grades = (o) => [...new Set(o.items.map((it) => it.name.replace(/^เกรด\s*/, '')))]
 const container = (it) => String(it.description || '').split('·')[0].trim()
+// ชื่อที่แสดง: ลูกค้าทั่วไป/สวนที่กรอกชื่อไว้ = ชื่อที่กรอก (ไม่ใช่คำว่า "ลูกค้าทั่วไป") — ไม่กรอก = ชื่อกลุ่ม
+const nameOf = (o) => o.customer.givenName || o.customer.name
+// สถานะการขายให้โรงงาน 3 ขั้น (ใบที่ยืนยันแล้ว): รอจัดส่ง · กำลังจัดส่ง (อยู่ในฉบับร่างเที่ยวขนส่ง) · ขายเรียบร้อยแล้ว
+const saleInfo = (o) => (o.sale ? { ...SALE_STATES.find((s) => s.v === o.sale.state), ...o.sale } : null)
+const saleTip = (o) => {
+  const s = o.sale
+  if (!s) return ''
+  const part = s.partial ? ` · ขายไปแล้ว ${formatNumber(s.soldKg)} กก. เหลือ ${formatNumber(s.leftKg)} กก.` : ''
+  return s.state === 'shipping' ? `อยู่ในฉบับร่างเที่ยวขนส่ง (ปล่อยกลับเป็นรอจัดส่งได้ด้วยการลบฉบับร่างที่หน้าการขนส่ง)${part}` : s.state === 'sold' ? 'ตัดเข้าเที่ยวขนส่งครบทุกกิโลกรัมแล้ว' : `ยังไม่ได้ขายให้โรงงาน${part}`
+}
 const statusText = { pending: 'PENDING', complete: 'COMPLETE', rejected: 'REJECTED', draft: 'DRAFT' }
 </script>
 
@@ -37,6 +48,7 @@ const statusText = { pending: 'PENDING', complete: 'COMPLETE', rejected: 'REJECT
         <th class="c-num">น้ำหนักสุทธิ</th>
         <th class="c-num">ยอดรวม</th>
         <th class="c-st">สถานะ</th>
+        <th class="c-sale">การขาย</th>
         <th class="c-act">ดำเนินการ</th>
       </tr>
     </thead>
@@ -51,7 +63,7 @@ const statusText = { pending: 'PENDING', complete: 'COMPLETE', rejected: 'REJECT
           <td class="c-no"><strong>#{{ o.no }}</strong><time :datetime="o.createdAt">{{ formatDateTime(o.createdAt) }}</time></td>
           <td class="c-cus">
             <span class="avatar" :style="{ background: toneOf(o.id) }" aria-hidden="true">{{ initials(o.customer.name) }}</span>
-            <span class="who"><b>{{ o.customer.name }}</b><small v-if="o.holdStatus === 'OVERNIGHT' || o.soldState !== 'none'" class="hold-chips"><span v-if="o.holdStatus === 'OVERNIGHT'" class="hchip hchip--night">ค้างคืน</span><span v-if="o.soldState !== 'none'" class="hchip hchip--sold">{{ o.soldState === 'all' ? 'ขายโรงงานแล้ว' : 'ขายโรงงานบางส่วน' }}</span></small><small v-if="o.customer.type === 'garden'" class="gardtag">สวน · จ่ายลูกจ้าง {{ o.sharePct }}%</small><small v-else-if="o.customer.memberNo">{{ o.customer.memberNo }}</small><small v-else>ลูกค้าทั่วไป</small></span>
+            <span class="who"><b :class="{ 'who--blank': o.customer.type === 'general' && !o.customer.givenName }">{{ nameOf(o) }}{{ o.customer.givenName ? '' : o.customer.type === 'general' ? ' (ไม่ระบุชื่อ)' : '' }}</b><small v-if="o.holdStatus === 'OVERNIGHT'" class="hold-chips"><span class="hchip hchip--night">ค้างคืน</span></small><small v-if="o.customer.type === 'garden'" class="gardtag">{{ o.customer.givenName ? 'สวน · ' : '' }}จ่ายลูกจ้าง {{ o.sharePct }}%</small><small v-else-if="o.customer.memberNo">{{ o.customer.memberNo }}</small><small v-else>ลูกค้าทั่วไป</small></span>
           </td>
           <td class="c-items">
             <span v-for="g in grades(o).slice(0, 3)" :key="g" class="gtag">{{ g }}</span>
@@ -61,6 +73,13 @@ const statusText = { pending: 'PENDING', complete: 'COMPLETE', rejected: 'REJECT
           <td class="c-num">{{ formatNumber(totalNet(o)) }} <small>กก.</small></td>
           <td class="c-num c-total">{{ formatMoney(o.total) }}</td>
           <td class="c-st"><span class="pill" :class="`pill--${o.status}`">{{ statusText[o.status] }}</span></td>
+          <td class="c-sale">
+            <template v-if="saleInfo(o)">
+              <span class="sale" :class="`sale--${o.sale.state}`" :title="saleTip(o)"><AppIcon :name="saleInfo(o).icon" :size="12" /> {{ saleInfo(o).label }}</span>
+              <small v-if="o.sale.partial" class="sale__part">ขายแล้ว {{ formatNumber(o.sale.soldKg) }} / เหลือ {{ formatNumber(o.sale.leftKg) }} กก.</small>
+            </template>
+            <span v-else class="dash">—</span>
+          </td>
           <td class="c-act" @click.stop>
             <div v-if="o.status === 'pending'" class="acts">
               <button type="button" class="act act--reject" :disabled="busyId === o.id" aria-label="Reject order" title="ปฏิเสธ" @click="$emit('reject', o)"><AppIcon name="x" :size="16" /></button>
@@ -75,7 +94,7 @@ const statusText = { pending: 'PENDING', complete: 'COMPLETE', rejected: 'REJECT
         </tr>
 
         <tr v-if="open.has(o.id)" class="detail">
-          <td colspan="8">
+          <td colspan="9">
             <table class="sub">
               <thead>
                 <tr><th>#</th><th>เกรด</th><th>ภาชนะ</th><th class="r">ชั่งรวม (กก.)</th><th class="r">หักภาชนะ</th><th class="r">สุทธิ (กก.)</th><th class="r">ราคา/กก.</th><th class="r">จำนวนเงิน</th></tr>
@@ -125,6 +144,7 @@ small { font-size: 11px; color: var(--slate-400); font-weight: 500; }
 th.c-num, td.c-num { text-align: right; white-space: nowrap; }
 .c-total { font-weight: 800; font-size: 14px; color: var(--slate-900); }
 .c-st { width: 110px; }
+.c-sale { width: 150px; }
 .c-act { width: 150px; }
 
 .row { cursor: pointer; transition: background .12s; }
@@ -173,4 +193,10 @@ th.c-num, td.c-num { text-align: right; white-space: nowrap; }
 .hold-chips { display: flex; gap: 4px; margin-bottom: 2px; }
 .hchip { padding: 1px 8px; border-radius: 9999px; font-size: 10px; font-weight: 700; border: 1px solid; }
 .hchip--night { background: #f5f3ff; color: #6d28d9; border-color: #c4b5fd; } .hchip--sold { background: #f0fdf4; color: #15803d; border-color: #86efac; }
+.c-sale small { display: block; margin-top: 3px; font-size: 10.5px; color: var(--slate-500); }
+.sale { display: inline-flex; align-items: center; gap: 5px; padding: 4px 10px; border-radius: 9999px; font-size: 11px; font-weight: 700; border: 1px solid; white-space: nowrap; }
+.sale--waiting { background: var(--amber-50); color: var(--amber-700); border-color: #fcd34d; }
+.sale--shipping { background: var(--blue-50); color: var(--blue-700); border-color: #93c5fd; }
+.sale--sold { background: #f0fdf4; color: var(--green-700); border-color: #86efac; }
+.who--blank { color: var(--slate-500) !important; font-weight: 600 !important; }
 </style>

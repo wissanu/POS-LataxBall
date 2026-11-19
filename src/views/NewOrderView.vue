@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
 import ProductCard from '@/components/ProductCard.vue'
 import OrderPanel from '@/components/OrderPanel.vue'
@@ -18,7 +18,7 @@ import { useSearchStore } from '@/stores/search'
 import { useSettingsStore } from '@/stores/settings'
 import { useToast } from '@/composables/useToast'
 import { getErrorMessage } from '@/services/http'
-import { formatThaiDate } from '@/utils/dates'
+import { addDays, formatThaiDate } from '@/utils/dates'
 import { formatNumber, normalizeSearch } from '@/utils/format'
 
 const board = usePriceBoardStore()
@@ -29,6 +29,7 @@ const settings = useSettingsStore()
 const find = useSearchStore()
 const toast = useToast()
 const router = useRouter()
+const route = useRoute()
 
 const canManage = computed(() => auth.can('price.manage')) // ตั้งราคา / sync / discard
 
@@ -38,13 +39,40 @@ const settingsOpen = ref(false) // popup: ตั้งค่าน้ำหน�
 const selected = ref(null)
 
 onMounted(() => {
-  board.start() // โหลดราคาวันนี้ + เฝ้าเที่ยงคืน (รีเซ็ตอัตโนมัติ)
+  // เปิดมาจากหน้า Order List (ปุ่ม "ทำบิลย้อนหลัง") พร้อม ?date=YYYY-MM-DD → เริ่มที่วันนั้นเลย
+  const q = typeof route.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(route.query.date) ? route.query.date : ''
+  if (q) board.selectedDate = q < board.todayStr ? q : ''
+  board.start() // โหลดราคาของวันที่เลือก (ค่าเริ่มต้น = วันนี้) + เฝ้าเที่ยงคืน (รีเซ็ตอัตโนมัติ)
   settings.load() // น้ำหนักภาชนะที่ตั้งไว้ (JSON)
+  if (q) router.replace({ name: 'new-order' }) // เอา ?date= ออกจาก URL (กัน refresh แล้วย้อนซ้ำ)
 })
 onBeforeUnmount(() => {
   board.stop()
+  board.resetDate() // ออกจากหน้า = กลับโหมดวันนี้
   find.clearGrade() // ช่องค้นหาด้านบนใช้ค้นเกรดเฉพาะหน้านี้
 })
+
+// ---- ทำบิลย้อนหลัง: เลือกวันที่ลงบิล (ใช้ราคาและลงวันที่ของวันนั้น) ----
+const dayWord = computed(() => (board.isBackdated ? `ของวันที่ ${formatThaiDate(board.date)}` : 'ของวันนี้'))
+const dateConfirmOpen = ref(false)
+const pendingDate = ref('')
+const minDate = computed(() => addDays(board.todayStr, -366))
+function onPickDate(e) {
+  const v = e.target.value
+  e.target.value = board.selectedDate || board.todayStr // กลับเป็นค่าเดิมไว้ก่อน (เปลี่ยนจริงเมื่อ board โหลดแล้ว)
+  if (!v || v === (board.selectedDate || board.todayStr)) return
+  changeDate(v > board.todayStr ? board.todayStr : v)
+}
+function changeDate(v) {
+  if (cart.lines.length) { pendingDate.value = v; dateConfirmOpen.value = true; return }
+  applyDate(v)
+}
+function applyDate(v) {
+  dateConfirmOpen.value = false
+  closeSelect()
+  cart.clear()
+  board.setDate(v)
+}
 
 // ---- ช่องค้นหาด้านบน: กรองรายการเกรด (ชื่อ / รหัสเกรด / ราคา) ----
 const query = computed(() => normalizeSearch(find.gradeQuery))
@@ -91,7 +119,7 @@ watch(() => board.error, (m) => m && toast.error(m))
 
 // ---- sync: เมื่อวาน (ถ้าเมื่อวานร้านหยุด = วันเปิดทำการล่าสุด) ใช้ได้เมื่อยังไม่มีข้อมูลวันนี้ หรือ discard ทิ้งทั้งหมดแล้ว ----
 const syncLabel = computed(() =>
-  !board.syncSource || board.syncSource.isYesterday ? 'sync ข้อมูลเมื่อวาน' : `sync ข้อมูลล่าสุด (${formatThaiDate(board.syncSource.date)})`,
+  !board.syncSource || board.syncSource.isYesterday ? (board.isBackdated ? 'sync ข้อมูลวันก่อนหน้า' : 'sync ข้อมูลเมื่อวาน') : `sync ข้อมูลล่าสุด (${formatThaiDate(board.syncSource.date)})`,
 )
 async function doSync() {
   try {
@@ -160,6 +188,11 @@ function openDrafts() {
         </div>
         <p class="crumbs">Dashboard <i>•</i> <b>New Order</b></p>
         <div class="quick">
+          <label class="billdate" :class="{ 'billdate--past': board.isBackdated }" title="วันที่ลงบิล — เลือกวันที่ผ่านมาแล้วเพื่อทำบิลย้อนหลัง">
+            <span>วันที่ลงบิล</span>
+            <input type="date" :value="board.selectedDate || board.todayStr" :max="board.todayStr" :min="minDate" aria-label="วันที่ลงบิล" @change="onPickDate" />
+          </label>
+          <button v-if="board.isBackdated" type="button" class="backtoday" @click="changeDate(board.todayStr)">กลับเป็นวันนี้</button>
           <BaseButton size="sm" :disabled="!canManage || undefined" :title="canManage ? undefined : 'ต้องมีสิทธิ์ตั้งราคา (ผู้จัดการ/ผู้ดูแลระบบ)'" @click="priceOpen = true"><AppIcon name="plus" :size="14" /> New</BaseButton>
           <BaseButton variant="outline" size="sm" @click="toast.info('ยังไม่เปิดใช้งานฟีเจอร์นี้')"><AppIcon name="qr" :size="14" /> QR Menu Orders</BaseButton>
           <BaseButton variant="outline" size="sm" @click="openDrafts"><AppIcon name="file" :size="14" /> Draft List</BaseButton>
@@ -173,6 +206,7 @@ function openDrafts() {
     <!-- แถบข้อมูลราคาของวันนี้ + เลือกเพื่อ discard (แสดงเมื่อมีข้อมูลของวันนี้แล้ว) -->
     <div v-if="board.exists" class="bar">
       <span class="bar__date">ราคารับซื้อ ประจำวันที่ <b>{{ formatThaiDate(board.date) }}</b></span>
+      <span v-if="board.isBackdated" class="bar__back" role="status"><AppIcon name="clock" :size="12" /> ทำบิลย้อนหลัง — บิลที่ออกจะลงเป็นวันที่นี้</span>
       <span v-if="board.board?.copiedFrom" class="bar__sync"><AppIcon name="sync" :size="12" /> sync จาก {{ formatThaiDate(board.board.copiedFrom) }}</span>
       <span v-if="board.missingGrades.length" class="bar__warn" role="status">ยังไม่มีราคาเกรด {{ board.missingGrades.join(', ') }}{{ canManage ? ' — กดปุ่ม New เพื่อตั้งราคา' : ' — แจ้งผู้จัดการให้ตั้งราคา' }}</span>
       <span class="bar__grow" />
@@ -196,21 +230,21 @@ function openDrafts() {
       <!-- ยังไม่มีข้อมูลของวันนี้ (รวมถึงหลังเที่ยงคืน) -->
       <div v-else-if="!board.exists" class="empty">
         <span class="empty__img"><LumpImage /></span>
-        <h2>ยังไม่มีข้อมูลของวันนี้</h2>
+        <h2>ยังไม่มีข้อมูล{{ dayWord }}</h2>
         <p class="empty__or">หรือ</p>
         <button type="button" class="syncbtn" :disabled="!canManage || !board.canSync || board.busy" @click="doSync">
           <AppIcon name="sync" :size="16" :class="{ spin: board.busy }" /> {{ syncLabel }}
         </button>
         <small v-if="!canManage" class="empty__note">ต้องให้ผู้จัดการหรือผู้ดูแลระบบเป็นผู้ตั้งราคาประจำวัน</small>
-        <small v-else-if="!board.canSync" class="empty__note">ไม่มีข้อมูลย้อนหลังให้ sync — กดปุ่ม New เพื่อตั้งราคาของวันนี้</small>
-        <small v-else-if="!board.syncSource.isYesterday" class="empty__note">เมื่อวานร้านหยุด จะ sync จากวันเปิดทำการล่าสุด ({{ formatThaiDate(board.syncSource.date) }})</small>
+        <small v-else-if="!board.canSync" class="empty__note">ไม่มีข้อมูลย้อนหลังให้ sync — กดปุ่ม New เพื่อตั้งราคา{{ dayWord }}</small>
+        <small v-else-if="!board.syncSource.isYesterday" class="empty__note">{{ board.isBackdated ? 'วันก่อนหน้า' : 'เมื่อวาน' }}ร้านหยุด จะ sync จากวันเปิดทำการล่าสุด ({{ formatThaiDate(board.syncSource.date) }})</small>
       </div>
 
-      <!-- มีกลุ่มของวันนี้ แต่ถูก discard จนหมด: sync ใหม่ได้ -->
+      <!-- มีกลุ่มของวันที่เลือก แต่ถูก discard จนหมด: sync ใหม่ได้ -->
       <div v-else-if="!board.items.length" class="empty">
         <span class="empty__img"><LumpImage /></span>
         <h2>ไม่มีรายการเหลืออยู่</h2>
-        <p class="empty__note">รายการของวันนี้ถูก discard ทั้งหมดแล้ว กดปุ่ม New เพื่อตั้งราคาใหม่</p>
+        <p class="empty__note">รายการ{{ dayWord }}ถูก discard ทั้งหมดแล้ว กดปุ่ม New เพื่อตั้งราคาใหม่</p>
         <template v-if="board.canSync">
           <p class="empty__or">หรือ</p>
           <button type="button" class="syncbtn" :disabled="!canManage || board.busy" @click="doSync">
@@ -239,8 +273,16 @@ function openDrafts() {
   <ContainerSettingsModal v-model="settingsOpen" />
   <GradeEntryModal v-model="pickOpen" :product="selected" />
 
+  <BaseModal v-model="dateConfirmOpen" title="เปลี่ยนวันที่ลงบิล" width="420px">
+    <p class="confirm">เปลี่ยนไปลงบิลวันที่ <b>{{ formatThaiDate(pendingDate) }}</b> — ราคาจะเปลี่ยนเป็นของวันนั้น จึงต้องล้างรายการที่ค้างอยู่ในตะกร้า ({{ cart.lines.length }} แถว) ต้องการดำเนินการต่อไหม?</p>
+    <template #footer>
+      <BaseButton variant="soft" @click="dateConfirmOpen = false">ไม่เปลี่ยน</BaseButton>
+      <BaseButton variant="dark" @click="applyDate(pendingDate)">ล้างตะกร้าและเปลี่ยนวัน</BaseButton>
+    </template>
+  </BaseModal>
+
   <BaseModal v-model="confirmOpen" title="Discard รายการที่เลือก" width="420px">
-    <p class="confirm">ต้องการ discard <b>{{ picked.size }}</b> รายการออกจากราคาของวันนี้ใช่ไหม? รายการที่ discard จะไม่แสดงและใช้รับซื้อในวันนี้ไม่ได้ (กลับมาได้โดยกรอกราคาใหม่ด้วยปุ่ม New)</p>
+    <p class="confirm">ต้องการ discard <b>{{ picked.size }}</b> รายการออกจากราคา{{ dayWord }}ใช่ไหม? รายการที่ discard จะไม่แสดงและใช้รับซื้อ{{ board.isBackdated ? 'ในวันนั้น' : 'ในวันนี้' }}ไม่ได้ (กลับมาได้โดยกรอกราคาใหม่ด้วยปุ่ม New)</p>
     <template #footer>
       <BaseButton variant="soft" @click="confirmOpen = false">ยกเลิก</BaseButton>
       <BaseButton variant="dark" :loading="discarding" @click="doDiscard">Discard</BaseButton>
@@ -261,7 +303,15 @@ h1 { font-size: 20px; font-weight: 700; letter-spacing: -.2px; color: var(--slat
 .crumbs { font-size: 12px; color: var(--slate-400); margin-top: -10px; }
 .crumbs i { font-style: normal; margin: 0 4px; }
 .crumbs b { color: var(--blue-600); font-weight: 500; }
-.quick { display: flex; flex-wrap: wrap; gap: 8px; }
+.quick { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.billdate { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 10px; border-radius: var(--radius-md); background: #fff; border: 1px solid var(--slate-200); font-size: 12px; font-weight: 600; color: var(--slate-600); }
+.billdate input { height: 24px; border: 0; background: transparent; font: inherit; font-size: 12px; color: var(--slate-800); }
+.billdate input:focus { outline: none; }
+.billdate--past { background: var(--amber-50); border-color: #fcd34d; color: var(--amber-700); }
+.billdate--past input { color: var(--amber-700); font-weight: 700; }
+.backtoday { height: 32px; padding: 0 12px; border-radius: var(--radius-md); font-size: 12px; font-weight: 600; color: var(--blue-700); background: var(--blue-50); border: 1px solid var(--blue-100); }
+.backtoday:hover { background: var(--blue-100); }
+.bar__back { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; border-radius: 9999px; background: var(--amber-50); color: var(--amber-700); font-weight: 700; border: 1px solid #fcd34d; }
 
 .grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(184px, 1fr)); gap: 14px; align-content: start; padding: 16px 4px 16px 0; }
 .grp { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 8px; margin-top: 6px; padding-bottom: 6px; border-bottom: 1px solid var(--slate-200); font-size: 14px; font-weight: 800; color: var(--slate-800); }

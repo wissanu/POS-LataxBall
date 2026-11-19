@@ -1,5 +1,5 @@
 <script setup>
-// สรุปกำไร (หน้า "บิล") — เฉพาะผู้จัดการ/ผู้ดูแลระบบ (สิทธิ์เดียวกับเมนู "การขนส่ง") · แท็บ รายวัน + ช่วงวัน/ยางค้างคืน
+// สรุปกำไร (หน้า "บิล") — เฉพาะผู้จัดการ/ผู้ดูแลระบบ (สิทธิ์เดียวกับเมนู "การขนส่ง") · แท็บ สรุปยอดวันนี้ + สรุปยอดงบดุล
 //   รายรับ  = ยอดบิลโรงงานของเที่ยวขนส่งในวันนั้น          (กรอกที่เมนู "การขนส่ง")
 //   รายจ่าย = ซื้อยางจากลูกค้า (อัตโนมัติ) + ค่าคนงาน + ค่าขนส่ง + อื่น ๆ   (3 ช่องหลังกรอกที่นี่)
 //   กำไรสุทธิ = รายรับ − รายจ่าย · ยังไม่มีบิลโรงงาน = ยังบอกกำไรไม่ได้ (แสดงต้นทุนของวันไว้ก่อน)
@@ -26,7 +26,7 @@ const today = bangkokDate()
 const date = ref(today)
 const props = defineProps({ defaultOpen: { type: Boolean, default: false } })
 const open = ref(props.defaultOpen) // ย่ออยู่ก่อนเป็นค่าเริ่มต้น (เห็นแค่หัวแผง + กำไรสุทธิสั้น ๆ) · หน้า "บิล" เปิดไว้
-const tab = ref('day') // 'day' = รายวัน · 'range' = ช่วงวัน / ยางค้างคืน
+const tab = ref('day') // 'day' = สรุปยอดวันนี้ · 'range' = สรุปยอดงบดุล
 const data = ref(null)
 const loading = ref(false)
 const error = ref('')
@@ -86,11 +86,11 @@ const isToday = computed(() => date.value === today)
 </script>
 
 <template>
-  <section v-if="visible" class="dp" aria-label="สรุปกำไรประจำวัน">
+  <section v-if="visible" class="dp" aria-label="สรุปกำไร">
     <header class="dp__head">
       <button type="button" class="dp__toggle" :aria-expanded="open" @click="open = !open">
         <AppIcon name="chart" :size="15" />
-        <b>สรุปกำไรประจำวัน</b>
+        <b>สรุปกำไร</b>
         <span class="dp__date">{{ formatThaiDate(date) }}<template v-if="isToday"> (วันนี้)</template></span>
       </button>
       <span class="dp__quick" :class="{ loss: hasBill && calc.profit < 0, wait: !hasBill }">
@@ -103,8 +103,8 @@ const isToday = computed(() => date.value === today)
 
     <div v-if="open" class="dp__body">
       <div class="dp__tabs" role="tablist" aria-label="มุมมองสรุปกำไร">
-        <button type="button" role="tab" :aria-selected="tab === 'day'" :class="{ on: tab === 'day' }" @click="tab = 'day'">รายวัน</button>
-        <button type="button" role="tab" :aria-selected="tab === 'range'" :class="{ on: tab === 'range' }" @click="tab = 'range'">ช่วงวัน / ยางค้างคืน</button>
+        <button type="button" role="tab" :aria-selected="tab === 'day'" :class="{ on: tab === 'day' }" @click="tab = 'day'">สรุปยอดวันนี้</button>
+        <button type="button" role="tab" :aria-selected="tab === 'range'" :class="{ on: tab === 'range' }" @click="tab = 'range'">สรุปยอดงบดุล</button>
       </div>
 
       <RangeProfitPanel v-if="tab === 'range'" />
@@ -162,7 +162,7 @@ const isToday = computed(() => date.value === today)
         </div>
       </div>
 
-      <p class="dp__note">แท็บนี้คิดแบบเงินสดตามวันที่เกิดรายการ: ยางที่ซื้อวันนี้แต่ส่งขายพรุ่งนี้ จะเห็นเป็นต้นทุนของวันนี้และรายรับของพรุ่งนี้ — ถ้าขายยางค้างคืนหรือขายบางส่วน ให้ดูที่แท็บ “ช่วงวัน / ยางค้างคืน” ซึ่งคิดกำไรตามต้นทุนยางที่ขายไปจริง</p>
+      <p class="dp__note">แท็บนี้คิดแบบเงินสดตามวันที่เกิดรายการ: ยางที่ซื้อวันนี้แต่ส่งขายพรุ่งนี้ จะเห็นเป็นต้นทุนของวันนี้และรายรับของพรุ่งนี้ — ถ้าขายยางค้างคืนหรือขายบางส่วน ให้ดูที่แท็บ “สรุปยอดงบดุล” ซึ่งคิดกำไรตามต้นทุนยางที่ขายไปจริง</p>
       </template>
     </div>
   </section>
