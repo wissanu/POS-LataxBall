@@ -26,11 +26,15 @@ export const useCartStore = defineStore('cart', () => {
   const lines = ref([]) // { uid, productId, name, productType, pricePerKg, containerId, containerLabel, gross }
   const customerType = ref('general') // 'member' | 'general' | 'garden' (สวน: จ่ายลูกจ้างตาม sharePct% ของผลผลิต)
   const holdStatus = ref('SAME_DAY') // สถานะยาง: SAME_DAY = ขายต่อวัน · OVERNIGHT = ค้างคืน (เปลี่ยนภายหลังได้ที่เมนู "ยางรอขาย")
+  const dryness = ref(null) // ระดับความแห้ง/ความหมาดของยางใบนี้ (ไม่บังคับ): 1 แห้งมาก · 2 แห้ง · 3 ปกติ · 4 อมน้ำ · 5 อมน้ำมาก — ใช้คำนวณ DRC% รายลูกค้าเท่านั้น
+  const porosity = ref(null) // ความพรุน (ไม่บังคับ): 1 น้อยมาก · 2 น้อย · 3 ปานกลาง · 4 มาก · 5 มากที่สุด
+  const knifeCount = ref(null) // จำนวนมีดที่กรีดต่อก้อน/ต่อต้น ที่ยางใบนี้มาจาก (ไม่บังคับ 1-20)
   const sharePct = ref('50') // ส่วนแบ่งลูกจ้างสวน (% ของผลผลิต) — ค่าเริ่มต้น 50 ปรับได้ต่อใบ
   const sharePctValid = computed(() => { const n = toNumber(sharePct.value); return n > 0 && n <= 100 })
   const memberId = ref(null)
   const customerName = ref('') // ชื่อลูกค้า (เฉพาะลูกค้าทั่วไป/สวน — ไม่บังคับ) ไว้ดูย้อนหลังว่ายางของใคร
   const additions = ref([]) // { id, scope, mode, value }
+  const photos = ref([]) // รูปยางของบิลนี้ (ไม่บังคับ ≤ 6): [{ id, image, thumb }] data URL ที่ย่อแล้ว — ส่งไปพร้อมบิล
 
   // ---- customer ----
   const cleanName = computed(() => customerName.value.trim().replace(/\s+/g, ' '))
@@ -117,12 +121,17 @@ export const useCartStore = defineStore('cart', () => {
   function clear() {
     lines.value = []
     additions.value = []
+    photos.value = []
   }
   function reset() {
     clear()
     customerType.value = 'general'
     sharePct.value = '50'
     holdStatus.value = 'SAME_DAY'
+    dryness.value = null
+    porosity.value = null
+    knifeCount.value = null
+    photos.value = []
     memberId.value = null
     customerName.value = ''
   }
@@ -134,6 +143,10 @@ export const useCartStore = defineStore('cart', () => {
       ...(billDate ? { billDate } : {}),
       customer: customer.value,
       holdStatus: holdStatus.value,
+      ...(dryness.value ? { dryness: dryness.value } : {}),
+      ...(porosity.value ? { porosity: porosity.value } : {}),
+      ...(knifeCount.value ? { knifeCount: knifeCount.value } : {}),
+      ...(photos.value.length ? { photos: photos.value.map((p) => ({ image: p.image, thumb: p.thumb })) } : {}),
       items: lines.value.map((l) => ({ productId: l.productId, containerId: l.containerId, gross: toNumber(l.gross) })),
       additions: additionRows.value
         .map((r) => ({
@@ -147,8 +160,8 @@ export const useCartStore = defineStore('cart', () => {
   }
 
   return {
-    holdStatus, sharePct, sharePctValid, grossTotal, shareDeduction,
-    lines, customerType, memberId, customerName, cleanName, member, customer, additions, additionRows,
+    holdStatus, dryness, porosity, knifeCount, sharePct, sharePctValid, grossTotal, shareDeduction,
+    photos, lines, customerType, memberId, customerName, cleanName, member, customer, additions, additionRows,
     tareOf, netOf, amountOf, totalNet, subtotal, lineAdditionOf, additionAmount, total, linesOf,
     addAddition, updateAddition, removeAddition,
     setGroup, setGross, removeLine, clear, reset, submit,

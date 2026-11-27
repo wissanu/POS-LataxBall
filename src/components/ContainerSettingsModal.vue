@@ -13,7 +13,7 @@ const props = defineProps({ modelValue: Boolean })
 const emit = defineEmits(['update:modelValue'])
 
 const settings = useSettingsStore()
-// หน้า New Order เลือกภาชนะได้แค่ 2 แบบ (ไม่ใส่ตะกร้าเข่ง / ตะกร้าเข่ง) จึงตั้งค่าเฉพาะ 2 แบบนี้
+// หน้ารับออเดอร์ใหม่ เลือกภาชนะได้แค่ 2 แบบ (ไม่ใส่ตะกร้าเข่ง / ตะกร้าเข่ง) จึงตั้งค่าเฉพาะ 2 แบบนี้
 const USED = ['none', 'keng']
 const visible = computed(() => settings.containers.filter((c) => USED.includes(c.id)))
 const toast = useToast()

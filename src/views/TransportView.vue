@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
 import BaseButton from '@/components/BaseButton.vue'
 import BaseInput from '@/components/BaseInput.vue'
@@ -138,6 +139,13 @@ watch(() => [form.factoryNetKg, form.factoryPricePerKg, form.factoryDrcPct, form
   const n = toNumber(form.factoryNetKg); const p = toNumber(form.factoryPricePerKg)
   form.factoryAmount = n > 0 && p > 0 && drcFactor.value > 0 ? String(round2(n * p * drcFactor.value)) : ''
 })
+// โรงงานไม่แจ้งราคา — แจ้งแค่ น้ำหนักสุทธิ, DRC%, ยอดเงิน → ราคา/กก. ยางแห้ง = ยอดเงิน ÷ (น้ำหนักสุทธิ × DRC%) (กรอกยอดเงินแล้วช่องราคาเติมให้เอง)
+const priceAuto = ref(false)
+const derivedPrice = computed(() => {
+  const n = toNumber(form.factoryNetKg), d = toNumber(form.factoryDrcPct), a = toNumber(form.factoryAmount)
+  return drcMode.value && amountEdited.value && n > 0 && d > 0 && a > 0 ? round2(a / (n * (d / 100))) : null
+})
+watch(derivedPrice, (v) => { if (v != null && (priceAuto.value || toNumber(form.factoryPricePerKg) <= 0)) { form.factoryPricePerKg = String(v); priceAuto.value = true } })
 function setBillMode(m) { if (form.billMode === m) return; form.billMode = m; amountEdited.value = false }
 const onAmount = (v) => { amountEdited.value = v !== ''; return sanitizeDecimal(v, 2) }
 
@@ -154,7 +162,7 @@ const errors = computed(() => {
     const d = toNumber(form.factoryDrcPct)
     if (form.factoryDrcPct !== '' && (d <= 0 || d > 100)) e.factoryDrcPct = 'DRC% ต้องอยู่ระหว่าง 1-100'
     if (toNumber(form.factoryPricePerKg) > 0 && !(d > 0)) e.factoryDrcPct = e.factoryDrcPct || 'กรอก DRC% คู่กับราคา'
-    if (d > 0 && !(toNumber(form.factoryPricePerKg) > 0)) e.factoryPricePerKg = 'กรอกราคาโรงงานคู่กับ DRC%'
+    if (d > 0 && !(toNumber(form.factoryPricePerKg) > 0) && !(derivedPrice.value > 0)) e.factoryPricePerKg = 'กรอกยอดเงินตามบิล (ระบบคำนวณราคาให้) หรือกรอกราคาโรงงานคู่กับ DRC%'
   }
   return e
 })
@@ -189,7 +197,16 @@ const drafts = ref([])
 let activeDraftId = null // ฉบับร่างที่กำลังเปิดอยู่ในฟอร์ม (null = เที่ยวใหม่ที่ยังไม่มีร่าง)
 let skipDraft = false
 async function loadDrafts() { try { drafts.value = await transportDraftService.list() } catch { /* ไม่แสดง error: ชิปแค่ไม่ขึ้น */ } }
-onMounted(loadDrafts)
+const route = useRoute(), router = useRouter()
+// เปิดจากหน้า "บิล" › รอจัดการบิล: /transport?draft=<id> = เปิดฉบับร่างนั้นให้กรอกบิลโรงงานต่อทันที
+onMounted(async () => {
+  await loadDrafts()
+  const id = typeof route.query.draft === 'string' ? route.query.draft : ''
+  if (!id) return
+  router.replace({ name: 'transport' })
+  const d = drafts.value.find((x) => x.id === id)
+  if (d) openDraft(d); else toast.error('ไม่พบฉบับร่างนี้แล้ว (อาจถูกลบหรือบันทึกเป็นเที่ยวแล้ว)')
+})
 // ดึงสถานะฉบับร่างใหม่ทุก 10 วินาที (น้ำหนัก/ใบที่ยังเหลือ — ไม่มีใบใหม่เข้ามาเอง) (เฉพาะตอนแท็บมองเห็นและไม่ได้เปิดฟอร์ม) และตอนกลับมาที่แท็บ
 let draftTimer
 const refreshDrafts = () => { if (document.visibilityState === 'visible' && !open.value) loadDrafts() }
@@ -403,7 +420,8 @@ const tone = (pct) => (pct == null ? '' : pct < 0 ? 'neg' : 'ok')
         </div>
         <template v-else>
           <div class="row">
-            <BaseInput v-model="form.factoryPricePerKg" label="ราคาโรงงาน (บาท/กก. ยางแห้ง)" inputmode="decimal" placeholder="เช่น 70.00" :format="(v) => sanitizeDecimal(v, 2)" :error="err('factoryPricePerKg')" />
+            <BaseInput v-model="form.factoryPricePerKg" label="ราคาโรงงาน (บาท/กก. ยางแห้ง)" inputmode="decimal" placeholder="โรงงานไม่แจ้ง — กรอกยอดเงินแล้วคำนวณให้" :format="(v) => sanitizeDecimal(v, 2)" :error="err('factoryPricePerKg')" @update:model-value="priceAuto = false" />
+            <p v-if="priceAuto && derivedPrice" class="hint">คำนวณจาก ยอดเงิน ÷ (น้ำหนักสุทธิ × DRC%) = {{ derivedPrice }} บาท/กก. — แก้ทับได้</p>
             <BaseInput v-model="form.factoryDrcPct" label="DRC (%)" inputmode="decimal" placeholder="เช่น 55" :format="(v) => sanitizeDecimal(v, 2)" :error="err('factoryDrcPct')" />
           </div>
           <BaseInput :model-value="form.factoryAmount" label="ยอดเงินตามบิล (บาท)" inputmode="decimal" placeholder="คำนวณให้อัตโนมัติ" :format="onAmount" @update:model-value="(v) => (form.factoryAmount = v)" />

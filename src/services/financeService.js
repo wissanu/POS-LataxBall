@@ -21,7 +21,8 @@ import { http } from './http'
 //                  sources: [{ date, kg, nights, cost }] }],           // sources = ยางที่ส่งรอบนี้มาจากการซื้อวันไหนบ้าง
 //        stock: { kg, value, oldestDate, oldestNights, lots: [{ date, productType, kg, costPerKg, value, nights }] } }   // ยางคงเหลือ ณ สิ้นสุดช่วง
 export const financeService = {
-  range: (from, to) => http.get('/finance/range', { params: { from, to } }).then((r) => r.data),
+  // page / pageSize = แบ่งหน้า "รอบขายในช่วงนี้" (trips) ที่ server · ตอบ tripsPage: { page, pageSize, total, totalPages } และ summary.lossPct (สูญเสียน้ำรวมทุกเที่ยวในช่วง)
+  range: (from, to, page = 1, pageSize = 10) => http.get('/finance/range', { params: { from, to, page, pageSize } }).then((r) => r.data),
   daily: (date) => http.get('/finance/daily', { params: { date } }).then((r) => r.data),
   saveExpenses: (date, payload) => http.put(`/finance/expenses/${date}`, payload).then((r) => r.data),
   report: (params) => http.get('/finance/report', { params }).then((r) => r.data),

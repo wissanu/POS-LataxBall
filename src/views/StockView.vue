@@ -28,7 +28,9 @@ const filter = ref('all') // all | SAME_DAY | OVERNIGHT
 const statusFilter = ref('all') // all | waiting | shipping
 const picked = ref(new Set())
 const busy = ref(false)
-const open = ref(new Set()) // รายการที่กางดูใบ: `${date}:${status}`
+// รายการ (วัน × สถานะ) กางไว้ตั้งแต่แรก จะได้เห็นรายชื่อลูกค้าและเลือกสถานะรายคนได้ทันที · เก็บเฉพาะที่ "ย่อ" ไว้
+const collapsed = ref(new Set()) // `${date}:${status}`
+const isOpen = (key) => !collapsed.value.has(key)
 
 async function load() {
   if (!data.value) loading.value = true
@@ -93,7 +95,7 @@ const stat = computed(() => {
   return out
 })
 
-const toggleOpen = (key) => { const s = new Set(open.value); s.has(key) ? s.delete(key) : s.add(key); open.value = s }
+const toggleOpen = (key) => { const s = new Set(collapsed.value); s.has(key) ? s.delete(key) : s.add(key); collapsed.value = s }
 const toggleBill = (id) => { const s = new Set(picked.value); s.has(id) ? s.delete(id) : s.add(id); picked.value = s }
 const groupAll = (g) => g.rows.every((r) => picked.value.has(r.b.id))
 function toggleGroup(g) { const s = new Set(picked.value); const all = groupAll(g); for (const r of g.rows) all ? s.delete(r.b.id) : s.add(r.b.id); picked.value = s }
@@ -116,7 +118,7 @@ const flip = (b) => (b.hold === 'OVERNIGHT' ? 'SAME_DAY' : 'OVERNIGHT')
     <header class="head">
       <div>
         <h1>ยางรอขาย</h1>
-        <p>ยางที่รับซื้อแล้วแต่ยังไม่ได้ขายให้โรงงาน · แยกตามสถานะ <b>รอจัดส่ง</b> / <b>กำลังจัดส่ง</b> (อยู่ในฉบับร่างเที่ยวขนส่ง) · เปลี่ยน ขายต่อวัน ⇄ ค้างคืน ได้ตลอดสำหรับยางที่รอจัดส่ง</p>
+        <p>ยางที่รับซื้อแล้วแต่ยังไม่ได้ขายให้โรงงาน · แยกตามสถานะ <b>รอจัดส่ง</b> / <b>กำลังจัดส่ง</b> (อยู่ในฉบับร่างเที่ยวขนส่ง) · เลือก ขายต่อวัน / ค้างคืน ได้ทีละลูกค้า (ติ๊กหลายคนแล้วตั้งพร้อมกันได้) สำหรับยางที่รอจัดส่ง</p>
       </div>
       <div class="tools">
         <div class="seg" role="group" aria-label="กรองสถานะการขาย">
@@ -168,19 +170,15 @@ const flip = (b) => (b.hold === 'OVERNIGHT' ? 'SAME_DAY' : 'OVERNIGHT')
               <input v-if="canEdit && g.status === 'waiting'" type="checkbox" :checked="groupAll(g)" :aria-label="`เลือกทุกใบที่รอจัดส่งของวันที่ ${formatThaiDate(d.date)}`" @change="toggleGroup(g)" />
               <span v-else class="ck-gap" aria-hidden="true" />
               <span class="st" :class="`st--${g.status}`" :title="STATUS[g.status].hint"><AppIcon :name="STATUS[g.status].icon" :size="12" /> {{ STATUS[g.status].label }}</span>
-              <button type="button" class="grp__name" :aria-expanded="open.has(g.key)" @click="toggleOpen(g.key)">
-                <span class="chev" :class="{ up: open.has(g.key) }">▸</span> {{ g.rows.length }} ใบ
+              <button type="button" class="grp__name" :aria-expanded="isOpen(g.key)" @click="toggleOpen(g.key)">
+                <span class="chev" :class="{ up: isOpen(g.key) }">▸</span> {{ g.rows.length }} ใบ
               </button>
               <span v-if="g.same" class="chip">ขายต่อวัน {{ g.same }}</span>
               <span v-if="g.night" class="chip chip--night">ค้างคืน {{ g.night }}</span>
               <span class="day__kg">ก้อนถ้วย <b>{{ formatNumber(g.cup) }}</b> กก.<template v-if="g.foam > 0"> · ขี้ฟอง <b>{{ formatNumber(g.foam) }}</b> กก.</template> · ต้นทุน {{ formatMoney(g.cost) }}</span>
-              <span v-if="canEdit && g.status === 'waiting'" class="day__act">
-                <button type="button" :disabled="busy" @click="setHold(g.rows.map((r) => r.b.id), 'SAME_DAY', 'ขายต่อวัน')">ทั้งรายการ → ขายต่อวัน</button>
-                <button type="button" :disabled="busy" @click="setHold(g.rows.map((r) => r.b.id), 'OVERNIGHT', 'ค้างคืน')">ทั้งรายการ → ค้างคืน</button>
-              </span>
-              <RouterLink v-else-if="g.status === 'shipping'" to="/transport" class="goto">ไปที่ฉบับร่าง</RouterLink>
+              <RouterLink v-if="g.status === 'shipping'" to="/transport" class="goto">ไปที่ฉบับร่าง</RouterLink>
             </div>
-            <table v-if="open.has(g.key)" class="tb">
+            <table v-if="isOpen(g.key)" class="tb">
               <thead><tr><th v-if="canEdit" /><th>ใบรับซื้อ</th><th>ลูกค้า</th><th class="r">ก้อนถ้วย (กก.)</th><th class="r">ขี้ฟอง (กก.)</th><th class="r">ต้นทุน</th><th>สถานะ</th></tr></thead>
               <tbody>
                 <tr v-for="r in g.rows" :key="r.b.id">
@@ -192,10 +190,13 @@ const flip = (b) => (b.hold === 'OVERNIGHT' ? 'SAME_DAY' : 'OVERNIGHT')
                   <td class="r">{{ formatMoney(r.cost) }}</td>
                   <td>
                     <span class="st st--sm" :class="`st--${g.status}`">{{ STATUS[g.status].label }}</span>
-                    <span class="chip" :class="{ 'chip--night': r.b.hold === 'OVERNIGHT' }">{{ LABEL[r.b.hold] }}</span>
+                    <span v-if="!(canEdit && g.status === 'waiting')" class="chip" :class="{ 'chip--night': r.b.hold === 'OVERNIGHT' }">{{ LABEL[r.b.hold] }}</span>
                     <span v-if="r.b.partial" class="chip chip--part" title="ขายไปบางส่วนแล้ว เช่น ขายยางก้อนถ้วยแล้ว เหลือขี้ฟอง">ขายบางส่วนแล้ว</span>
                     <small v-for="id in r.drafts" :key="id" class="dname">{{ draftName(id) }}</small>
-                    <button v-if="canEdit && g.status === 'waiting'" type="button" class="flip" :disabled="busy" @click="setHold([r.b.id], flip(r.b), LABEL[flip(r.b)])">เปลี่ยนเป็น{{ LABEL[flip(r.b)] }}</button>
+                    <span v-if="canEdit && g.status === 'waiting'" class="pick" role="group" :aria-label="`สถานะยางของ ${r.b.customer}`">
+                      <button type="button" :class="{ on: r.b.hold === 'SAME_DAY' }" :aria-pressed="r.b.hold === 'SAME_DAY'" :disabled="busy" @click="r.b.hold !== 'SAME_DAY' && setHold([r.b.id], 'SAME_DAY', 'ขายต่อวัน')">ขายต่อวัน</button>
+                      <button type="button" :class="{ on: r.b.hold === 'OVERNIGHT', night: true }" :aria-pressed="r.b.hold === 'OVERNIGHT'" :disabled="busy" @click="r.b.hold !== 'OVERNIGHT' && setHold([r.b.id], 'OVERNIGHT', 'ค้างคืน')">ค้างคืน</button>
+                    </span>
                   </td>
                 </tr>
               </tbody>
@@ -208,6 +209,8 @@ const flip = (b) => (b.hold === 'OVERNIGHT' ? 'SAME_DAY' : 'OVERNIGHT')
 </template>
 
 <style scoped>
+.pick { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--slate-200); border-radius: 9px; background: #fff; margin-left: 6px; }
+.pick button { padding: 3px 10px; border-radius: 7px; font-size: 11px; font-weight: 700; color: var(--slate-500); } .pick button.on { background: var(--blue-50); color: var(--blue-700); } .pick button.on.night { background: #f5f3ff; color: #6d28d9; } .pick button:disabled { opacity: .6; }
 .stk { display: flex; flex-direction: column; gap: 12px; height: 100%; min-height: 0; overflow-y: auto; padding-bottom: 12px; }
 .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .head h1 { font-size: 28px; font-weight: 800; letter-spacing: -.5px; color: var(--slate-900); } .head p { font-size: 12px; color: var(--slate-500); margin-top: 2px; max-width: 640px; }

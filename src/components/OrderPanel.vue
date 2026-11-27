@@ -1,8 +1,15 @@
 <script setup>
+const DRYNESS = [{ v: 1, label: 'แห้งมาก' }, { v: 2, label: 'แห้ง' }, { v: 3, label: 'ปกติ' }, { v: 4, label: 'อมน้ำ' }, { v: 5, label: 'อมน้ำมาก' }] // ระดับความแห้ง/หมาดของยางลูกค้าใบนี้
+const POROSITY = [{ v: 1, label: 'น้อยมาก' }, { v: 2, label: 'น้อย' }, { v: 3, label: 'ปานกลาง' }, { v: 4, label: 'มาก' }, { v: 5, label: 'มากที่สุด' }]
+const knife = (d) => { const n = (cart.knifeCount ?? 0) + d; cart.knifeCount = n < 1 ? null : Math.min(20, n) }
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import AppIcon from './AppIcon.vue'
 import BaseButton from './BaseButton.vue'
 import AdditionModal from './AdditionModal.vue'
+import BaseModal from './BaseModal.vue'
+import PhotoPicker from './PhotoPicker.vue'
+import { useAuthStore } from '@/stores/auth'
+import { useFactoryDayStore } from '@/stores/factoryDay'
 import { useCartStore } from '@/stores/cart'
 import { useMemberStore } from '@/stores/members'
 import { usePriceBoardStore } from '@/stores/priceBoard'
@@ -14,7 +21,7 @@ import { formatThaiDate } from '@/utils/dates'
 /**
  * แผงรายการปัจจุบัน (ขวา) — แสดงผลเป็นข้อความทั้งหมด
  *   ลูกค้า (เลือกที่หน้าต่างเกรด) · ตารางรายการ · เพิ่มราคา · สรุปยอด · ปุ่ม Draft / Bill & Print
- *   กรอก/ลบแถว: กดการ์ดเกรดในหน้า New Order (หน้าต่างเกรดจะแสดงแถวเดิมให้แก้ไข)
+ *   กรอก/ลบแถว: กดการ์ดเกรดในหน้ารับออเดอร์ใหม่ (หน้าต่างเกรดจะแสดงแถวเดิมให้แก้ไข)
  *   แก้น้ำหนักสินค้าเร็วๆ: ปุ่ม "แก้ไข" ข้าง "ล้างทั้งหมด" → ช่องน้ำหนักทุกแถวกลายเป็นช่องกรอก · กด Enter หรือกดปุ่มอีกครั้ง ("ยืนยัน") = บันทึกและคำนวณยอดใหม่ · Esc = ยกเลิก
  *   ย่อแผง: ซ่อนแผงทั้งหมด เหลือปุ่มลอย (ไอคอนรายการ) ที่ขอบขวา — กดอีกครั้งเพื่อเปิดกลับ
  */
@@ -22,6 +29,22 @@ const cart = useCartStore()
 const members = useMemberStore()
 const board = usePriceBoardStore()
 const toast = useToast()
+const auth = useAuthStore()
+const day = useFactoryDayStore()
+
+// ---- แจ้งเตือนก่อน Bill & Print: ยังไม่ได้กำหนดราคาโรงงาน / ชื่อลูกค้า → หยุดไว้ก่อน (ไม่ส่งบิล) ให้ไปกำหนดแล้วกดอีกครั้ง ----
+const alertKind = ref('') // '' | 'price' | 'name'
+const alertOpen = computed({ get: () => !!alertKind.value, set: (v) => { if (!v) alertKind.value = '' } })
+const nameDraft = ref('')
+const canSetPrice = computed(() => auth.can('price.manage'))
+function gotoPrice() { alertKind.value = ''; day.requestFocus() }
+function saveName() {
+  const n = nameDraft.value.trim().replace(/\s+/g, ' ')
+  if (!n) return toast.error('กรุณากรอกชื่อลูกค้า')
+  cart.customerName = n
+  alertKind.value = ''
+  toast.success('กรอกชื่อลูกค้าแล้ว — กด Bill & Print อีกครั้งเพื่อออกบิล')
+}
 
 const collapsed = ref(false)
 const busy = ref(false)
@@ -112,6 +135,8 @@ async function send(status, message) {
     if (cart.customerType === 'member' && !cart.member) return toast.error('กรุณาเลือกลูกค้าประจำ (เลือกได้ที่หน้าต่างเกรด)')
     if (cart.customerType === 'garden' && !cart.sharePctValid) return toast.error('เปอร์เซ็นต์ส่วนแบ่งลูกจ้างสวนต้องมากกว่า 0 และไม่เกิน 100 (ตั้งได้ที่หน้าต่างเกรด)')
     if (cart.lines.some((l) => cart.netOf(l) <= 0)) return toast.error('น้ำหนักสินค้าต้องมากกว่าน้ำหนักภาชนะทุกแถว')
+    if (day.price == null) { alertKind.value = 'price'; return }
+    if (cart.customerType !== 'member' && !cart.cleanName) { nameDraft.value = ''; alertKind.value = 'name'; return }
   }
   busy.value = true
   try {
@@ -143,6 +168,7 @@ async function send(status, message) {
       </button>
     </header>
 
+      <div class="pscroll">
       <p v-if="board.isBackdated" class="backbill" role="status"><AppIcon name="clock" :size="13" /> บิลย้อนหลัง · ลงวันที่ <b>{{ formatThaiDate(board.date) }}</b></p>
 
       <!-- ลูกค้า: ข้อความอย่างเดียว (เลือกที่หน้าต่างเกรด) -->
@@ -207,10 +233,29 @@ async function send(status, message) {
         </ul>
       </section>
 
+      <PhotoPicker />
+
       <div class="hold" role="radiogroup" aria-label="สถานะยาง">
         <span class="hold__lbl">สถานะยาง</span>
         <button type="button" role="radio" :aria-checked="cart.holdStatus === 'SAME_DAY'" :class="{ on: cart.holdStatus === 'SAME_DAY' }" @click="cart.holdStatus = 'SAME_DAY'">ขายต่อวัน</button>
         <button type="button" role="radio" :aria-checked="cart.holdStatus === 'OVERNIGHT'" :class="{ on: cart.holdStatus === 'OVERNIGHT', night: true }" @click="cart.holdStatus = 'OVERNIGHT'">ค้างคืน</button>
+      </div>
+
+      <div class="dry" role="radiogroup" aria-label="ความแห้งของยาง">
+        <span class="hold__lbl">ความแห้ง <small>(ไม่บังคับ · ไว้คำนวณ DRC% ลูกค้า)</small></span>
+        <button v-for="d in DRYNESS" :key="d.v" type="button" role="radio" :aria-checked="cart.dryness === d.v" :class="[`dry--${d.v}`, { on: cart.dryness === d.v }]" @click="cart.dryness = cart.dryness === d.v ? null : d.v">{{ d.label }}</button>
+      </div>
+
+      <div class="dry" role="radiogroup" aria-label="ความพรุนของยาง">
+        <span class="hold__lbl">ความพรุน <small>(ไม่บังคับ)</small></span>
+        <button v-for="d in POROSITY" :key="d.v" type="button" role="radio" :aria-checked="cart.porosity === d.v" :class="[`por--${d.v}`, { on: cart.porosity === d.v }]" @click="cart.porosity = cart.porosity === d.v ? null : d.v">{{ d.label }}</button>
+      </div>
+      <div class="dry" aria-label="จำนวนมีด">
+        <span class="hold__lbl">ยางกี่มีด <small>(จำนวนมีดที่กรีดต่อก้อน/ต่อต้น · ไม่บังคับ)</small></span>
+        <button type="button" class="step" aria-label="ลดจำนวนมีด" :disabled="!cart.knifeCount" @click="knife(-1)">−</button>
+        <b class="kv">{{ cart.knifeCount ?? '–' }}</b>
+        <button type="button" class="step" aria-label="เพิ่มจำนวนมีด" :disabled="cart.knifeCount >= 20" @click="knife(1)">+</button>
+        <button v-if="cart.knifeCount" type="button" class="step clr" @click="cart.knifeCount = null">ล้าง</button>
       </div>
 
       <!-- ยอดรวมแยกเกรด: ผู้กรอกเทียบกับยอดของผู้จดได้ทันที -->
@@ -236,6 +281,7 @@ async function send(status, message) {
         <div v-if="cart.customerType === 'garden'" class="garden"><dt>ส่วนของสวน (หัก {{ pct(100 - toNumber(cart.sharePct)) }}%)</dt><dd class="minus">−{{ formatMoney(cart.shareDeduction) }}</dd></div>
         <div class="total"><dt>{{ cart.customerType === 'garden' ? `ยอดจ่ายลูกจ้างสวน (${pct(cart.sharePct)}%)` : 'ยอดสุทธิ' }}</dt><dd>{{ formatMoney(cart.total) }}</dd></div>
       </dl>
+      </div>
 
       <div class="actions">
         <BaseButton variant="soft" :disabled="!cart.lines.length || editing" @click="send('draft', 'บันทึกฉบับร่างแล้ว')"><AppIcon name="file" :size="14" /> Draft</BaseButton>
@@ -243,6 +289,22 @@ async function send(status, message) {
       </div>
 
     <AdditionModal v-model="additionOpen" :edit-id="editingAddition" />
+
+    <BaseModal v-model="alertOpen" :title="alertKind === 'price' ? 'ยังไม่ได้กำหนดราคาโรงงาน' : 'ยังไม่ได้กำหนดชื่อลูกค้า'" width="420px">
+      <template v-if="alertKind === 'price'">
+        <p class="alert">ยังไม่ได้กำหนด<b>ราคาโรงงาน</b>{{ board.isBackdated ? `ของวันที่ ${formatThaiDate(board.date)}` : 'ของวันนี้' }} — ระบบหยุดการออกบิลไว้ก่อน (รายการในตะกร้ายังอยู่ครบ)<br />กำหนดราคาที่ช่อง “ราคาโรงงาน” ด้านบน แล้วกด Bill &amp; Print อีกครั้ง</p>
+        <p v-if="!canSetPrice" class="alert alert--sub">บัญชีนี้ไม่มีสิทธิ์ตั้งราคา กรุณาแจ้งผู้จัดการ/ผู้ดูแลระบบ</p>
+      </template>
+      <template v-else>
+        <p class="alert">ยังไม่ได้กำหนด<b>ชื่อลูกค้า</b> — ระบบหยุดการออกบิลไว้ก่อน กรอกชื่อแล้วกด Bill &amp; Print อีกครั้ง</p>
+        <input v-model="nameDraft" class="alert__in" maxlength="80" placeholder="ชื่อลูกค้า" autocomplete="off" @keydown.enter.prevent="saveName" />
+      </template>
+      <template #footer>
+        <BaseButton variant="soft" @click="alertKind = ''">ปิด</BaseButton>
+        <BaseButton v-if="alertKind === 'price'" variant="dark" :disabled="!canSetPrice" @click="gotoPrice">ไปกำหนดราคาโรงงาน</BaseButton>
+        <BaseButton v-else variant="dark" @click="saveName">บันทึกชื่อลูกค้า</BaseButton>
+      </template>
+    </BaseModal>
   </aside>
 
   <!-- ย่อแผง: ปุ่มลอยติดขอบขวา (fixed) ไอคอนรายการ + จำนวนแถว — กดเพื่อเปิดแผงกลับ -->
@@ -255,6 +317,8 @@ async function send(status, message) {
 </template>
 
 <style scoped>
+.alert { font-size: 13px; line-height: 1.7; color: var(--slate-700); } .alert--sub { margin-top: 6px; color: #b45309; font-weight: 600; }
+.alert__in { margin-top: 10px; width: 100%; height: 38px; padding: 0 12px; border: 1px solid var(--slate-200); border-radius: 10px; font: inherit; font-size: 14px; }
 .panel { width: 384px; flex: none; padding: 17px; display: flex; flex-direction: column; background: var(--glass-strong); min-height: 0; }
 .head { display: flex; align-items: center; justify-content: space-between; padding-bottom: 13px; border-bottom: 1px solid rgba(226, 232, 240, .6); }
 .who { display: flex; gap: 10px; align-items: center; min-width: 0; }
@@ -286,7 +350,8 @@ h2 { font-size: 13px; font-weight: 700; color: var(--slate-900); display: flex; 
 .fab:active { transform: translateY(-50%) scale(.96); }
 .fab__n { position: absolute; top: -6px; left: -6px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px; display: grid; place-items: center; font-style: normal; font-size: 11px; font-weight: 700; color: var(--blue-700); background: #fff; border: 1px solid var(--blue-100); box-shadow: 0 1px 3px rgba(15, 23, 42, .2); }
 
-.tbl { flex: 1; min-height: 120px; padding-right: 2px; }
+.pscroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; padding-right: 4px; margin-right: -4px; scrollbar-gutter: stable; } /* ส่วนกลางทั้งหมดเลื่อนด้วยลูกกลิ้งเมาส์ — ไม่ล้นจอ · หัวแผงกับปุ่มล่างตรึงอยู่ */
+.tbl { flex: none; max-height: 260px; min-height: 90px; padding-right: 2px; }
 .empty { text-align: center; color: var(--slate-400); font-size: 12px; line-height: 1.6; padding: 28px 12px; }
 table { width: 100%; border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums; }
 thead th { position: sticky; top: 0; z-index: 1; padding: 7px 4px; background: var(--slate-100); color: var(--slate-600); font-size: 10.5px; font-weight: 700; line-height: 1.3; text-align: right; }
@@ -317,6 +382,16 @@ tbody td.c { text-align: center; color: var(--slate-500); }
 
 .summary .garden dt { color: var(--amber-700); } .summary .minus { color: var(--amber-700); }
 .hold { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.dry { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.dry .hold__lbl small { font-weight: 500; color: var(--slate-400, #94a3b8); font-size: 10px; }
+.dry button { padding: 4px 10px; border-radius: 9999px; border: 1px solid var(--slate-200); background: #fff; font-size: 11px; font-weight: 700; color: var(--slate-500); }
+.dry button.on.dry--1, .dry button.on.dry--2 { background: #ecfdf5; border-color: #6ee7b7; color: #047857; }
+.dry button.on.dry--3 { background: var(--blue-50); border-color: var(--blue-100); color: var(--blue-700); }
+.dry button.on.dry--4, .dry button.on.dry--5 { background: #fffbeb; border-color: #fcd34d; color: #b45309; }
+.dry button.on.por--1, .dry button.on.por--2 { background: #ecfdf5; border-color: #6ee7b7; color: #047857; }
+.dry button.on.por--3 { background: var(--blue-50); border-color: var(--blue-100); color: var(--blue-700); }
+.dry button.on.por--4, .dry button.on.por--5 { background: #fffbeb; border-color: #fcd34d; color: #b45309; }
+.dry .step { min-width: 30px; padding: 3px 8px; font-size: 14px; } .dry .step:disabled { opacity: .35; } .dry .clr { font-size: 11px; } .dry .kv { min-width: 22px; text-align: center; font-size: 14px; color: var(--slate-900); }
 .hold__lbl { margin-right: auto; font-size: 11px; font-weight: 700; color: var(--slate-600); }
 .hold button { padding: 4px 12px; border-radius: 9999px; border: 1px solid var(--slate-200); background: #fff; font-size: 11px; font-weight: 700; color: var(--slate-500); }
 .hold button.on { background: var(--blue-50); border-color: var(--blue-100); color: var(--blue-700); } .hold button.on.night { background: #f5f3ff; border-color: #c4b5fd; color: #6d28d9; }

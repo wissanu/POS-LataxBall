@@ -5,6 +5,9 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import AppIcon from '@/components/AppIcon.vue'
 import DailyProfitPanel from '@/components/DailyProfitPanel.vue'
+import Pagination from '@/components/Pagination.vue'
+import PendingBills from '@/components/PendingBills.vue'
+import SaleCustomers from '@/components/SaleCustomers.vue'
 import { billsService } from '@/services/billsService'
 import { getErrorMessage } from '@/services/http'
 import { bangkokDate, formatThaiDate, monthStart } from '@/utils/dates'
@@ -20,38 +23,60 @@ const preset = ref('month')
 const range = reactive({ from: monthStart(today), to: today })
 const basis = ref('buy') // buy = ค้นตามวันที่ซื้อยาง · sale = ค้นตามวันที่ขายให้โรงงาน
 const q = ref('')
-const data = ref(null)
-const loading = ref(false)
+// แบ่งหน้าที่ server: ตาราง "วันที่ซื้อยาง" และ "บิลขายโรงงาน" ดึงทีละ 10 แถว — เลือกหน้าไหนดึงหน้านั้นจาก API
+const PAGE_SIZE = 10
+const daysData = ref(null)
+const salesData = ref(null)
+const dayPage = ref(1)
+const salePage = ref(1)
+const loadingDays = ref(false)
+const loadingSales = ref(false)
 const error = ref('')
 const open = ref(new Set())
-const focusId = ref('')
-let timer = null; let req = 0
+let timer = null; let reqD = 0; let reqS = 0
+const loading = computed(() => loadingDays.value || loadingSales.value)
 
 function pick(p) { preset.value = p.v; range.from = p.from(); range.to = today }
 const rangeError = computed(() => (!range.from || !range.to ? 'เลือกช่วงวันที่' : range.from > range.to ? 'วันเริ่มต้นต้องไม่เกินวันสิ้นสุด' : ''))
 
-async function load() {
+const params = (page) => ({ from: range.from, to: range.to, basis: basis.value, q: q.value.trim() || undefined, page, pageSize: PAGE_SIZE })
+async function loadDays() {
   if (rangeError.value) return
-  const id = ++req
-  loading.value = true; error.value = ''
+  const id = ++reqD
+  loadingDays.value = true
   try {
-    const res = await billsService.list({ from: range.from, to: range.to, basis: basis.value, q: q.value.trim() || undefined })
-    if (id === req) data.value = res
-  } catch (e) { if (id === req) error.value = getErrorMessage(e, 'โหลดบิลไม่สำเร็จ') } finally { if (id === req) loading.value = false }
+    const res = await billsService.days(params(dayPage.value))
+    if (id !== reqD) return
+    if (res.page > res.totalPages) { dayPage.value = res.totalPages; return }
+    daysData.value = res; error.value = ''
+  } catch (e) { if (id === reqD) error.value = getErrorMessage(e, 'โหลดวันที่ซื้อยางไม่สำเร็จ') } finally { if (id === reqD) loadingDays.value = false }
 }
+async function loadSales() {
+  if (rangeError.value) return
+  const id = ++reqS
+  loadingSales.value = true
+  try {
+    const res = await billsService.sales(params(salePage.value))
+    if (id !== reqS) return
+    if (res.page > res.totalPages) { salePage.value = res.totalPages; return }
+    salesData.value = res; error.value = ''
+  } catch (e) { if (id === reqS) error.value = getErrorMessage(e, 'โหลดบิลขายโรงงานไม่สำเร็จ') } finally { if (id === reqS) loadingSales.value = false }
+}
+const load = () => { loadDays(); loadSales() }
+// เปลี่ยนตัวกรอง → กลับหน้า 1 ของทั้งสองตาราง · เปลี่ยนหน้า → ดึงเฉพาะตารางนั้น
+function resetAndLoad() { dayPage.value = 1; salePage.value = 1; load() }
 onMounted(load)
-watch([() => range.from, () => range.to, basis], load)
-watch(q, () => { clearTimeout(timer); timer = setTimeout(load, 300) })
+watch([() => range.from, () => range.to, basis], resetAndLoad)
+watch(q, () => { clearTimeout(timer); timer = setTimeout(resetAndLoad, 300) })
+watch(dayPage, loadDays)
+watch(salePage, loadSales)
 onBeforeUnmount(() => clearTimeout(timer))
 
-const sales = computed(() => data.value?.sales ?? [])
-const days = computed(() => data.value?.days ?? [])
+const sales = computed(() => salesData.value?.rows ?? [])
+const days = computed(() => daysData.value?.rows ?? [])
 const toggle = (id) => { const s = new Set(open.value); s.has(id) ? s.delete(id) : s.add(id); open.value = s }
-function jumpTo(id) {
-  focusId.value = id
-  const s = new Set(open.value); s.add(id); open.value = s
-  document.getElementById(`bill-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-}
+// กดเลขบิลที่อ้างถึง → กรองตารางบิลขายให้เหลือบิลนั้น (บิลอาจอยู่คนละหน้า) · ล้างได้ที่ช่องค้นหา
+function focusSale(no) { q.value = no; document.getElementById('sales-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }
 const dayFmt = new Intl.DateTimeFormat('th-TH', { day: 'numeric', month: 'short' })
 const sd = (d) => dayFmt.format(new Date(`${d}T00:00:00`))
 const matched = (s, d) => s.matchedDates.includes(d)
@@ -66,7 +91,7 @@ function holdOf(s) {
 }
 const nightsLabel = (s, d) => { const n = nightsOf(s.saleDate, d); return n > 0 ? ` · ${n} คืน` : ' · วันเดียวกัน' }
 const billTotal = computed(() => ({
-  count: sales.value.length,
+  count: salesData.value?.total ?? 0,
   amount: sales.value.reduce((a, s) => a + (s.factoryAmount ?? 0), 0),
   profit: sales.value.reduce((a, s) => a + (s.profit ?? 0), 0),
 }))
@@ -81,8 +106,11 @@ const billTotal = computed(() => ({
       </div>
     </header>
 
-    <!-- สรุปกำไร (ย้ายมาจากหน้า Order List) -->
-    <DailyProfitPanel class="pp" default-open />
+    <!-- รอจัดการบิล: วันไหนยังค้างบิล (ย่อไว้ กางเอง) + ประมาณการบิลที่ยังไม่ได้ขาย · กรอกบิลโรงงานที่ได้ช้าได้ตรงนี้ -->
+    <PendingBills @changed="load" />
+
+    <!-- สรุปกำไร: แสดงเฉพาะสรุปยอดงบดุล (ภาพรวมแบบ dashboard) -->
+    <DailyProfitPanel class="pp" balance-only default-open />
 
     <div class="filters">
       <div class="seg" role="group" aria-label="ค้นตามวันที่">
@@ -105,7 +133,7 @@ const billTotal = computed(() => ({
       <!-- รายวันที่ซื้อยาง -->
       <section class="panel">
         <h2>วันที่ซื้อยาง <small>ซื้อเท่าไร · ขายให้โรงงานแล้วหรือยัง</small></h2>
-        <p v-if="data && !days.length" class="empty">ไม่มียางที่ซื้อในช่วงนี้</p>
+        <p v-if="daysData && !days.length" class="empty">ไม่มียางที่ซื้อในช่วงนี้</p>
         <table v-else-if="days.length" class="tb">
           <thead><tr><th>วันที่ซื้อ</th><th class="r">ใบ</th><th class="r">ก้อนถ้วย</th><th class="r">ขี้ฟอง</th><th class="r">ต้นทุน</th><th>ยังรอขาย</th><th>บิลขายที่อ้างถึง</th></tr></thead>
           <tbody>
@@ -124,20 +152,21 @@ const billTotal = computed(() => ({
                 <span v-else class="chip chip--ok">ขายหมดแล้ว</span>
               </td>
               <td>
-                <button v-for="id in d.saleBillIds" :key="id" type="button" class="link" @click="jumpTo(id)">{{ sales.find((s) => s.id === id)?.no }}</button>
-                <span v-if="!d.saleBillIds.length" class="muted">–</span>
+                <button v-for="b in d.saleBills" :key="b.id" type="button" class="link" @click="focusSale(b.no)">{{ b.no }}</button>
+                <span v-if="!d.saleBills.length" class="muted">–</span>
               </td>
             </tr>
           </tbody>
         </table>
+        <Pagination v-if="daysData && daysData.total > 0" :page="dayPage" :total-pages="daysData.totalPages" :total="daysData.total" :page-size="PAGE_SIZE" :disabled="loadingDays" @update:page="dayPage = $event" />
       </section>
 
       <!-- บิลขายโรงงาน -->
-      <section class="panel">
-        <h2>บิลขายโรงงาน <small v-if="sales.length">{{ billTotal.count }} บิล · ยอดบิล {{ formatMoney(billTotal.amount) }} · กำไรขั้นต้น {{ formatMoney(billTotal.profit) }}</small></h2>
-        <p v-if="data && !sales.length" class="empty">ไม่พบบิลขายโรงงานในช่วงนี้{{ basis === 'buy' ? ' (ลองค้นตามวันที่ขาย หรือเที่ยวที่ยังไม่ได้เลือกยางต้นทางจะค้นเจอเฉพาะตามวันที่ขาย)' : '' }}</p>
+      <section id="sales-panel" class="panel">
+        <h2>บิลขายโรงงาน <small v-if="sales.length">{{ billTotal.count }} บิล · หน้านี้: ยอดบิล {{ formatMoney(billTotal.amount) }} · กำไรขั้นต้น {{ formatMoney(billTotal.profit) }}</small></h2>
+        <p v-if="salesData && !sales.length" class="empty">ไม่พบบิลขายโรงงานในช่วงนี้{{ basis === 'buy' ? ' (ลองค้นตามวันที่ขาย หรือเที่ยวที่ยังไม่ได้เลือกยางต้นทางจะค้นเจอเฉพาะตามวันที่ขาย)' : '' }}</p>
         <ul class="sales">
-          <li v-for="s in sales" :id="`bill-${s.id}`" :key="s.id" class="sale" :class="{ focus: focusId === s.id }">
+          <li v-for="s in sales" :id="`bill-${s.id}`" :key="s.id" class="sale">
             <button type="button" class="sale__head" :aria-expanded="open.has(s.id)" @click="toggle(s.id)">
               <span class="chev" :class="{ up: open.has(s.id) }">▸</span>
               <b class="no">{{ s.no }}</b>
@@ -152,7 +181,8 @@ const billTotal = computed(() => ({
             </button>
 
             <div v-if="open.has(s.id)" class="sale__body">
-              <p class="meta">ส่ง {{ formatKg(s.shippedKg) }} → โรงงานชั่งได้ {{ formatKg(s.factoryNetKg) }} (สูญเสีย {{ formatNumber(s.lossPct) }}%)<template v-if="s.factoryPricePerKg"> · ราคาโรงงาน {{ formatMoney(s.factoryPricePerKg) }}/กก.<template v-if="s.factoryDrcPct != null"> ยางแห้ง · DRC {{ formatNumber(s.factoryDrcPct) }}%</template></template> · {{ productLabel(s.productType) }}</p>
+              <p class="meta">ส่ง {{ formatKg(s.shippedKg) }} → โรงงานชั่งได้ {{ formatKg(s.factoryNetKg) }} (สูญเสีย {{ formatNumber(s.lossPct) }}%)<template v-if="s.factoryPricePerKg"> · ราคาโรงงาน {{ formatMoney(s.factoryPricePerKg) }}/กก.<template v-if="s.factoryDrcPct != null"> ยางแห้ง · DRC {{ formatNumber(s.factoryDrcPct) }}%</template></template> · {{ productLabel(s.productType) }}<template v-if="s.buyDrcPct != null"> · DRC ตอนซื้อ {{ formatNumber(s.buyDrcPct) }}% (ยางแห้ง {{ formatKg(s.dryKg) }})</template></p>
+              <SaleCustomers v-if="!s.legacy" :sale-id="s.id" />
               <p v-if="s.legacy" class="muted">เที่ยวนี้บันทึกโดยไม่ได้เลือกยางต้นทาง — ต้นทุนคิดแบบเข้าก่อนออกก่อนในสรุปกำไร (ดูได้ที่แผงสรุปกำไร › สรุปยอดงบดุล)</p>
               <table v-else class="tb tb--in">
                 <thead><tr><th>ยางที่ซื้อวันที่</th><th class="r">ค้าง</th><th class="r">ใบ</th><th class="r">ก้อนถ้วย</th><th class="r">ขี้ฟอง</th><th class="r">ต้นทุน</th><th class="r">เฉลี่ย/กก.</th><th>ราคารับซื้อวันนั้น (เกรด @ ราคา · กก.)</th></tr></thead>
@@ -173,6 +203,7 @@ const billTotal = computed(() => ({
             </div>
           </li>
         </ul>
+        <Pagination v-if="salesData && salesData.total > 0" :page="salePage" :total-pages="salesData.totalPages" :total="salesData.total" :page-size="PAGE_SIZE" :disabled="loadingSales" @update:page="salePage = $event" />
       </section>
     </div>
   </section>

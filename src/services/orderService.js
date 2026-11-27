@@ -13,5 +13,7 @@ export const orderService = {
   customers: (q) => http.get('/orders/customers', { params: { q } }).then((r) => r.data),
   /** POST /orders — payload.billDate = 'YYYY-MM-DD' ทำบิลย้อนหลัง (ใช้ราคาและลงวันที่ของวันนั้น) · ไม่ส่ง = วันนี้ */
   create: (payload) => http.post('/orders', payload).then((r) => r.data),
+  /** POST /orders/estimate — คาดการณ์ DRC% ตอนซื้อของลูกค้าคนนี้ก่อนกด Bill & Print -> { date, factoryPrice, drcPct, basis: 'CUSTOMER'|'SHOP'|null, confidence, lots, sePct, shopDrcPct } */
+  estimate: (payload) => http.post('/orders/estimate', payload).then((r) => r.data),
   updateStatus: (id, status) => http.patch(`/orders/${id}`, { status }).then((r) => r.data),
 }

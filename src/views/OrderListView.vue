@@ -20,7 +20,7 @@ const toast = useToast()
 const menuOpen = ref(false)
 const router = useRouter()
 
-// ---- ทำบิลย้อนหลัง: เลือกวัน แล้วไปหน้า New Order ที่ใช้ราคา/ลงวันที่ของวันนั้น ----
+// ---- ทำบิลย้อนหลัง: เลือกวัน แล้วไปหน้ารับออเดอร์ใหม่ ที่ใช้ราคา/ลงวันที่ของวันนั้น ----
 const backOpen = ref(false)
 const backDate = ref('')
 const backMax = computed(() => addDays(bangkokDate(), -1))
@@ -59,7 +59,7 @@ const chipIcon = { complete: 'check', rejected: 'x', pending: 'clock' }
 
 onMounted(() => {
   orders.load()
-  orders.startPolling() // รับรายการที่ส่งมาจากหน้า New Order แบบต่อเนื่อง
+  orders.startPolling() // รับรายการที่ส่งมาจากหน้ารับออเดอร์ใหม่ แบบต่อเนื่อง
 })
 onBeforeUnmount(() => {
   orders.stopPolling()
@@ -168,8 +168,8 @@ const emptyText = computed(() =>
   <section class="orders glass">
     <header class="head">
       <div>
-        <h1>รายการรับซื้อสินค้า</h1>
-        <p>รับข้อมูล รายการรับซื้อสินค้า แบบต่อเนื่อง<template v-if="!orders.hasSearch && windowText"> · แสดง {{ windowText }}</template></p>
+        <h1>รายการออเดอร์</h1>
+        <p>รับข้อมูลรายการออเดอร์แบบต่อเนื่อง<template v-if="!orders.hasSearch && windowText"> · แสดง {{ windowText }}</template></p>
       </div>
       <div class="tools">
         <button v-if="canCreate" type="button" class="filter__btn" @click="openBack"><AppIcon name="clock" :size="14" /> ทำบิลย้อนหลัง</button>
@@ -197,7 +197,7 @@ const emptyText = computed(() =>
     </header>
 
     <BaseModal v-model="backOpen" title="ทำบิลย้อนหลัง" width="420px">
-      <p class="bk__txt">เลือกวันที่ต้องการลงบิล ระบบจะไปหน้า New Order ของวันนั้น (ใช้ราคารับซื้อของวันนั้น · เลขที่และวันที่ของบิลเป็นของวันนั้น)</p>
+      <p class="bk__txt">เลือกวันที่ต้องการลงบิล ระบบจะไปหน้ารับออเดอร์ใหม่ ของวันนั้น (ใช้ราคารับซื้อของวันนั้น · เลขที่และวันที่ของบิลเป็นของวันนั้น)</p>
       <label class="bk__f"><span>วันที่ลงบิล</span><input v-model="backDate" type="date" :min="backMin" :max="backMax" /></label>
       <template #footer>
         <BaseButton variant="soft" @click="backOpen = false">ยกเลิก</BaseButton>

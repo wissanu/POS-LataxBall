@@ -19,19 +19,20 @@ const route = useRoute()
 const orders = useOrderStore()
 const find = useSearchStore()
 
-const mode = computed(() => (route.name === 'orders' ? 'orders' : route.name === 'new-order' ? 'grades' : 'off'))
+const mode = computed(() => (route.name === 'orders' ? 'orders' : route.name === 'new-order' ? 'grades' : route.name === 'customers' ? 'customers' : 'off'))
 const placeholder = computed(() => ({
   orders: 'ค้นหาลูกค้า / ชื่อ / เลขที่ใบ / ขายแล้ว-ยังไม่ขาย / ช่วงวันเวลา',
   grades: 'ค้นหาเกรด เช่น A+, B, C+',
-  off: 'ค้นหาได้ที่หน้า Order List และ New Order',
+  customers: 'ค้นหาชื่อลูกค้า เช่น พี่มอด',
+  off: 'ค้นหาได้ที่หน้ารายการออเดอร์, รับออเดอร์ใหม่ และข้อมูลลูกค้า',
 }[mode.value]))
 
 const root = ref(null)
 const open = ref(false)
 const text = ref('')
 const model = computed({
-  get: () => (mode.value === 'grades' ? find.gradeQuery : text.value),
-  set: (v) => { if (mode.value === 'grades') find.gradeQuery = v; else text.value = v },
+  get: () => (mode.value === 'grades' ? find.gradeQuery : mode.value === 'customers' ? find.customerQuery : text.value),
+  set: (v) => { if (mode.value === 'grades') find.gradeQuery = v; else if (mode.value === 'customers') find.customerQuery = v; else text.value = v },
 })
 
 // เปลี่ยนหน้า: ล้างข้อความค้นหาของหน้าเดิม
@@ -167,7 +168,7 @@ onBeforeUnmount(() => {
         :aria-expanded="mode === 'orders' ? open : undefined" :aria-haspopup="mode === 'orders' ? 'listbox' : undefined"
         @focus="openPop" @input="mode === 'orders' && !open && openPop()" @keydown="onKey"
       />
-      <button v-if="mode === 'grades' && find.gradeQuery" type="button" class="search__x" aria-label="ล้างคำค้นหา" @click="clearInput"><AppIcon name="x" :size="12" /></button>
+      <button v-if="(mode === 'grades' && find.gradeQuery) || (mode === 'customers' && find.customerQuery)" type="button" class="search__x" aria-label="ล้างคำค้นหา" @click="clearInput"><AppIcon name="x" :size="12" /></button>
     </label>
 
     <div v-if="open && mode === 'orders'" class="pop" role="dialog" aria-label="ตัวเลือกการค้นหาใบรับซื้อ">

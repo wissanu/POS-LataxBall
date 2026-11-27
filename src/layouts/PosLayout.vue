@@ -17,10 +17,11 @@ const router = useRouter()
 // Each link shows only if the signed-in user holds its permission (see 03_rbac.sql).
 const menu = [
   { to: 'reports', label: 'รายงานภาพรวม', icon: 'chart', perm: ['report.view'] },
+  { to: 'customers', label: 'ข้อมูลลูกค้า', icon: 'users', perm: ['report.view'] },
   { to: 'estimate', label: 'ประเมินราคา', icon: 'cash', perm: ['report.view'] },
   { divider: true },
-  { to: 'new-order', label: 'New Order', icon: 'plus', perm: ['purchase.create'] },
-  { to: 'orders', label: 'Order List', icon: 'clipboard', perm: ['purchase.read'] },
+  { to: 'new-order', label: 'รับออเดอร์ใหม่', icon: 'plus', perm: ['purchase.create'] },
+  { to: 'orders', label: 'รายการออเดอร์', icon: 'clipboard', perm: ['purchase.read'] },
   { to: 'stock', label: 'ยางรอขาย', icon: 'box', perm: ['transport.read'] },
   { to: 'transport', label: 'การขนส่ง', icon: 'truck', perm: ['transport.read'] },
   { to: 'bills', label: 'บิล', icon: 'receipt', perm: ['transport.read'] },

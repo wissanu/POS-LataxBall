@@ -3,6 +3,7 @@
 //   ต้นทุนยางที่ขาย = เข้าก่อนออกก่อน (FIFO): เที่ยวขนส่งตัดจากยางที่ซื้อ "เก่าสุดก่อน" ที่ยังเหลืออยู่ ที่เหลือคือ "ยางค้างสต็อก"
 //   กำไร = รายรับบิลโรงงาน − ต้นทุนยางที่ขายไป − ค่าคนงาน/ค่าขนส่ง/อื่น ๆ ในช่วง
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import Pagination from '@/components/Pagination.vue'
 import { financeService } from '@/services/financeService'
 import { getErrorMessage } from '@/services/http'
 import { bangkokDate, formatThaiDate, monthStart } from '@/utils/dates'
@@ -20,6 +21,9 @@ const data = ref(null)
 const loading = ref(false)
 const error = ref('')
 let req = 0
+// "รอบขายในช่วงนี้" แบ่งหน้าที่ server (10 แถว/หน้า): เลือกหน้าไหน ดึงหน้านั้นจาก API
+const PAGE_SIZE = 10
+const page = ref(1)
 
 function pick(p) {
   preset.value = p.v
@@ -34,8 +38,10 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const res = await financeService.range(range.from, range.to)
-    if (id === req) data.value = res
+    const res = await financeService.range(range.from, range.to, page.value, PAGE_SIZE)
+    if (id !== req) return
+    if (res.tripsPage.page > res.tripsPage.totalPages) { page.value = res.tripsPage.totalPages; return }
+    data.value = res
   } catch (e) {
     if (id === req) error.value = getErrorMessage(e, 'โหลดสรุปกำไรตามช่วงวันไม่สำเร็จ')
   } finally {
@@ -43,7 +49,8 @@ async function load() {
   }
 }
 onMounted(load)
-watch([() => range.from, () => range.to], load)
+watch([() => range.from, () => range.to], () => { if (page.value !== 1) page.value = 1; else load() })
+watch(page, load)
 
 const s = computed(() => data.value?.summary)
 const expense = computed(() => (s.value ? s.value.labor + s.value.transport + s.value.other : 0))
@@ -53,11 +60,7 @@ const periodText = computed(() => (range.from === range.to ? formatThaiDate(rang
 // % สูญเสียน้ำของเที่ยว = (ส่ง − โรงงานชั่งได้) ÷ ส่ง · รวม = ถ่วงน้ำหนักทุกเที่ยวในช่วง
 const lossPct = (t) => (t.shippedKg > 0 ? ((t.shippedKg - t.factoryNetKg) / t.shippedKg) * 100 : 0)
 const lossTone = (t) => (lossPct(t) > 0 ? 'lossy' : '')
-const totalLoss = computed(() => {
-  const ts = data.value?.trips ?? []
-  const shipped = ts.reduce((a, t) => a + t.shippedKg, 0)
-  return shipped > 0 ? ((shipped - ts.reduce((a, t) => a + t.factoryNetKg, 0)) / shipped) * 100 : null
-})
+const totalLoss = computed(() => data.value?.summary?.lossPct ?? null) // สูญเสียน้ำรวมทุกเที่ยวในช่วง (ไม่ใช่เฉพาะหน้าที่แสดง)
 const nightsText = (n) => (n == null ? '–' : n < 0.05 ? 'ซื้อ-ขายวันเดียวกัน' : `${formatNumber(n)} คืน`)
 const dayShort = new Intl.DateTimeFormat('th-TH', { day: 'numeric', month: 'short' })
 const srcText = (x) => `${dayShort.format(new Date(`${x.date}T00:00:00`))} · ${formatNumber(x.kg)} กก.`
@@ -111,6 +114,7 @@ const srcText = (x) => `${dayShort.format(new Date(`${x.date}T00:00:00`))} · ${
           </tbody>
         </table>
       </div>
+      <Pagination v-if="data.tripsPage && data.tripsPage.total > 0" :page="page" :total-pages="data.tripsPage.totalPages" :total="data.tripsPage.total" :page-size="PAGE_SIZE" :disabled="loading" @update:page="page = $event" />
       <p class="note">กำไรขั้นต้น = ยอดบิลโรงงาน − ต้นทุนยางที่ส่งไป (ยังไม่หักค่าคนงาน/ค่าขนส่ง/อื่น ๆ ซึ่งหักรวมที่ “กำไรสุทธิ” ด้านบน)</p>
     </div>
     <p v-else-if="loading" class="rp__empty">กำลังโหลด…</p>

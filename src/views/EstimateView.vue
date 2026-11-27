@@ -1,5 +1,6 @@
 <script setup>
-// ประเมินราคา — คำนวณความคุ้มค่าของการรับซื้อยางก้อนถ้วยด้วยสูตร P → A → B, น้ำหนักสูญเสีย L, ค่าใช้จ่ายคงที่ F, กำไรเป้าหมาย M
+// ประเมินราคา มี 2 แผง (ย่อ/ขยายได้): "ขายส่งรายวัน (ฟ้าปราณี)" = สูตร P→A→B ด้านล่างนี้ พร้อมกราฟและวิธีคิด · "คำนวนราคารับซื้อ (ทั่วไป)" = GeneralPricePanel (F × y)
+// แผงขายส่งรายวัน — คำนวณความคุ้มค่าของการรับซื้อยางก้อนถ้วยด้วยสูตร P → A → B, น้ำหนักสูญเสีย L, ค่าใช้จ่ายคงที่ F, กำไรเป้าหมาย M
 //  1) เลือกวัน (ย้อนหลังได้ทุกวัน) → ดึงยางที่รับซื้อวันนั้นจาก Order List แยกตามสินค้า → ติ๊กเลือกสินค้า → น้ำหนัก W และราคาซื้อเฉลี่ย A ถูกใส่ช่องให้
 //     (ดึงอัตราสูญเสียจากเที่ยวขนส่ง และค่าใช้จ่ายของวันนั้นมาใส่ได้ด้วยปุ่ม) — หรือจะพิมพ์ตัวเลขเองทั้งหมดก็ได้ · ทุกช่องแก้ทับได้
 //  2) ผลลัพธ์ + กราฟคำนวณใหม่ทันทีทุกครั้งที่ช่องใดเปลี่ยน · คลิกบนกราฟ L / W เพื่อตั้งค่าช่องกรอก
@@ -11,6 +12,10 @@ import AppIcon from '@/components/AppIcon.vue'
 import EstimateLineChart from '@/components/EstimateLineChart.vue'
 import EstimateTornado from '@/components/EstimateTornado.vue'
 import EstimateWaterfall from '@/components/EstimateWaterfall.vue'
+import GeneralPricePanel from '@/components/GeneralPricePanel.vue'
+import CustomerEstimatePanel from '@/components/CustomerEstimatePanel.vue'
+import FactoryPriceCard from '@/components/FactoryPriceCard.vue'
+import { useRoute } from 'vue-router'
 import { reportService } from '@/services/reportService'
 import { financeService } from '@/services/financeService'
 import { transportService } from '@/services/transportService'
@@ -21,7 +26,9 @@ import { formatMoney, formatNumber, sanitizeDecimal, toNumber } from '@/utils/fo
 import { getErrorMessage } from '@/services/http'
 
 const auth = useAuthStore()
-const panelOpen = ref(true) // แผง "ขายส่งรายวัน (ฟ้าปราณี)" ย่อ/ขยาย
+const route = useRoute()
+const customerKey = computed(() => (typeof route.query.customer === 'string' ? route.query.customer : '')) // มาจากหน้า "ข้อมูลลูกค้า"
+const panelOpen = ref(false) // แผง "ขายส่งรายวัน (ฟ้าปราณี)" ย่อ/ขยาย
 const canFinance = computed(() => auth.can('transport.read')) // ค่าใช้จ่าย/ขนส่งต้องมีสิทธิ์การขนส่ง
 
 // ---------- ช่องกรอก (เก็บเป็นข้อความ) ----------
@@ -168,6 +175,13 @@ const steps = computed(() => {
     </header>
 
     <div class="scroll">
+      <!-- ประเมินรายลูกค้า: เปิดจากหน้า ข้อมูลลูกค้า (DRC ตอนซื้อเฉลี่ยของลูกค้าคนนั้น → ราคาที่ควรรับซื้อ + ราคาถ้าเทิร์นน้ำ) -->
+      <!-- ราคาโรงงานวันนี้: ดึงราคากลางวันละครั้ง → ประเมิน → แก้เองได้ (แผงรายลูกค้าใช้ราคานี้เป็น P) -->
+      <FactoryPriceCard />
+      <!-- ย่อทุกแผงเป็นค่าเริ่มต้น · แผงรายลูกค้าเปิดให้เมื่อเพิ่งเลือกลูกค้าจากหน้า ข้อมูลลูกค้า -->
+      <CustomerEstimatePanel v-if="customerKey" :key="customerKey" :customer-key="customerKey" start-open />
+      <router-link v-else class="pick" :to="{ name: 'customers' }">เลือกลูกค้าเพื่อประเมินราคารายคน (ข้อมูลลูกค้า) →</router-link>
+
       <!-- แผงเดียว: 1) เลือกวันและสินค้า · 2) ตัวเลขที่ใช้คำนวณ · 3) ผลลัพธ์ — ย่อ/ขยายได้ -->
       <section class="card panel" aria-label="ขายส่งรายวัน (ฟ้าปราณี)">
         <button type="button" class="panel__head" :aria-expanded="panelOpen" @click="panelOpen = !panelOpen">
@@ -179,7 +193,7 @@ const steps = computed(() => {
       <!-- 1) ดึงข้อมูลจากวันที่ทำรายการ -->
       <section class="sub">
         <div class="card__h">
-          <h2>1) เลือกวันและสินค้า <small>ดึงจากใบรับซื้อที่ยืนยันแล้วในหน้า Order List — หรือข้ามไปกรอกเองได้</small></h2>
+          <h2>1) เลือกวันและสินค้า <small>ดึงจากใบรับซื้อที่ยืนยันแล้วในหน้ารายการออเดอร์ — หรือข้ามไปกรอกเองได้</small></h2>
           <label class="date"><span>วันที่</span><input v-model="date" type="date" :max="today" /></label>
           <button v-if="date !== today" type="button" class="lnk" @click="date = today">วันนี้</button>
         </div>
@@ -202,7 +216,6 @@ const steps = computed(() => {
           <button v-if="dayInfo.expense" type="button" @click="useExpense"><AppIcon name="wallet" :size="13" /> ใช้ค่าใช้จ่ายของวันนั้น {{ formatMoney(dayInfo.expense.total) }} บาท</button>
         </div>
       </section>
-
       <!-- 2) ตัวแปร -->
       <section class="sub">
         <div class="card__h"><h2>2) ตัวเลขที่ใช้คำนวณ <small>พิมพ์แก้ได้ทุกช่อง</small></h2></div>
@@ -246,45 +259,48 @@ const steps = computed(() => {
           <p v-if="advice" class="advice" :class="advice.cls">{{ advice.text }}</p>
         </template>
       </section>
+        <!-- 4) กราฟ -->
+        <template v-if="ready">
+          <div class="charts">
+            <section class="card">
+              <div class="card__h"><h2>กำไรสุทธิ/วัน ตามอัตราสูญเสีย <small>คลิกกราฟเพื่อตั้งค่า L</small></h2></div>
+              <EstimateLineChart :points="cLoss" :current="{ x: e.L, y: e.net }" :markers="lossMarks" :x-fmt="(v) => `${formatNumber(v * 100)}%`" :y-fmt="(v) => formatNumber(Math.round(v))" x-label="สูญเสีย L" y-label="กำไร" @pick="pickL" />
+              <p class="cap">{{ lossAdvice }}</p>
+            </section>
+            <section class="card">
+              <div class="card__h"><h2>กำไรสุทธิ/วัน ตามปริมาณที่ซื้อ <small>คลิกกราฟเพื่อตั้งค่า W</small></h2></div>
+              <EstimateLineChart :points="cVol" :current="{ x: e.W, y: e.net }" :markers="volMarks" :x-fmt="(v) => formatNumber(Math.round(v))" :y-fmt="(v) => formatNumber(Math.round(v))" x-label="ซื้อ W (กก.)" y-label="กำไร" @pick="pickW" />
+              <p class="cap">{{ volAdvice }}</p>
+            </section>
+            <section class="card">
+              <div class="card__h"><h2>กำไรสุทธิ/กก. ตามราคารับซื้อที่ตั้ง <small>ราคาขาย B คงที่</small></h2></div>
+              <EstimateLineChart :points="cBuy" :current="{ x: e.A, y: e.netKg }" :markers="buyMarks" :refs="e.M > 0 ? [{ y: e.M, label: `เป้า M ${formatNumber(e.M)}`, color: '#d97706' }] : []" :x-fmt="(v) => formatNumber(v)" :y-fmt="(v) => formatNumber(v)" x-label="ราคารับซื้อ (บาท/กก.)" y-label="กำไร/กก." :clickable="false" />
+              <p class="cap">จุดที่เส้นตัดเส้นเป้า M = ราคารับซื้อสูงสุด A_max · ซื้อแพงกว่านั้นกำไรต่ำกว่าเป้า</p>
+            </section>
+            <section class="card">
+              <div class="card__h"><h2>เงินหายไปไหน <small>น้ำตกกำไร (บาท/วัน)</small></h2></div>
+              <EstimateWaterfall :steps="fall" />
+            </section>
+            <section class="card card--wide">
+              <div class="card__h"><h2>ปัจจัยไหนกระทบกำไรมากที่สุด <small>ขยับทีละปัจจัย ราคา ±1 บาท · สูญเสีย ±1 จุด % · ปริมาณ/ค่าใช้จ่าย ±10%</small></h2></div>
+              <EstimateTornado :rows="tornado" />
+            </section>
+          </div>
+
+          <details class="card how">
+            <summary>วิธีคิด — แทนค่าทีละบรรทัด</summary>
+            <table>
+              <thead><tr><th>รายการ</th><th>สูตร</th><th>แทนค่า</th><th class="r">ผล</th></tr></thead>
+              <tbody><tr v-for="s in steps" :key="s.t"><td>{{ s.t }}</td><td>{{ s.f }}</td><td>{{ s.s }}</td><td class="r"><b>{{ s.v }}</b></td></tr></tbody>
+            </table>
+          </details>
+        </template>
         </div>
       </section>
 
-      <!-- 4) กราฟ -->
-      <template v-if="ready">
-        <div class="charts">
-          <section class="card">
-            <div class="card__h"><h2>กำไรสุทธิ/วัน ตามอัตราสูญเสีย <small>คลิกกราฟเพื่อตั้งค่า L</small></h2></div>
-            <EstimateLineChart :points="cLoss" :current="{ x: e.L, y: e.net }" :markers="lossMarks" :x-fmt="(v) => `${formatNumber(v * 100)}%`" :y-fmt="(v) => formatNumber(Math.round(v))" x-label="สูญเสีย L" y-label="กำไร" @pick="pickL" />
-            <p class="cap">{{ lossAdvice }}</p>
-          </section>
-          <section class="card">
-            <div class="card__h"><h2>กำไรสุทธิ/วัน ตามปริมาณที่ซื้อ <small>คลิกกราฟเพื่อตั้งค่า W</small></h2></div>
-            <EstimateLineChart :points="cVol" :current="{ x: e.W, y: e.net }" :markers="volMarks" :x-fmt="(v) => formatNumber(Math.round(v))" :y-fmt="(v) => formatNumber(Math.round(v))" x-label="ซื้อ W (กก.)" y-label="กำไร" @pick="pickW" />
-            <p class="cap">{{ volAdvice }}</p>
-          </section>
-          <section class="card">
-            <div class="card__h"><h2>กำไรสุทธิ/กก. ตามราคารับซื้อที่ตั้ง <small>ราคาขาย B คงที่</small></h2></div>
-            <EstimateLineChart :points="cBuy" :current="{ x: e.A, y: e.netKg }" :markers="buyMarks" :refs="e.M > 0 ? [{ y: e.M, label: `เป้า M ${formatNumber(e.M)}`, color: '#d97706' }] : []" :x-fmt="(v) => formatNumber(v)" :y-fmt="(v) => formatNumber(v)" x-label="ราคารับซื้อ (บาท/กก.)" y-label="กำไร/กก." :clickable="false" />
-            <p class="cap">จุดที่เส้นตัดเส้นเป้า M = ราคารับซื้อสูงสุด A_max · ซื้อแพงกว่านั้นกำไรต่ำกว่าเป้า</p>
-          </section>
-          <section class="card">
-            <div class="card__h"><h2>เงินหายไปไหน <small>น้ำตกกำไร (บาท/วัน)</small></h2></div>
-            <EstimateWaterfall :steps="fall" />
-          </section>
-          <section class="card card--wide">
-            <div class="card__h"><h2>ปัจจัยไหนกระทบกำไรมากที่สุด <small>ขยับทีละปัจจัย ราคา ±1 บาท · สูญเสีย ±1 จุด % · ปริมาณ/ค่าใช้จ่าย ±10%</small></h2></div>
-            <EstimateTornado :rows="tornado" />
-          </section>
-        </div>
+      <!-- คำนวนราคารับซื้อ (ทั่วไป): แผงย่อ/ขยายได้ — สูตรจากโมดูล src/lib/rubber-price -->
+      <GeneralPricePanel />
 
-        <details class="card how">
-          <summary>วิธีคิด — แทนค่าทีละบรรทัด</summary>
-          <table>
-            <thead><tr><th>รายการ</th><th>สูตร</th><th>แทนค่า</th><th class="r">ผล</th></tr></thead>
-            <tbody><tr v-for="s in steps" :key="s.t"><td>{{ s.t }}</td><td>{{ s.f }}</td><td>{{ s.s }}</td><td class="r"><b>{{ s.v }}</b></td></tr></tbody>
-          </table>
-        </details>
-      </template>
     </div>
   </section>
 </template>
@@ -295,6 +311,7 @@ const steps = computed(() => {
 h1 { font-size: 24px; font-weight: 800; letter-spacing: -.4px; color: var(--slate-900); line-height: 32px; }
 .head p { font-size: 12px; color: var(--slate-500); }
 .scroll { flex: 1; min-height: 0; overflow: auto; padding: 14px 2px 20px; display: flex; flex-direction: column; gap: 14px; }
+.pick { align-self: flex-start; font-size: 13px; font-weight: 700; color: var(--blue-700); } .pick:hover { text-decoration: underline; }
 .card { background: #fff; border: 1px solid var(--slate-100); border-radius: var(--radius-lg, 14px); padding: 14px 16px; }
 .card__h { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-bottom: 10px; }
 .card__h h2 { flex: 1; min-width: 200px; font-size: 14px; font-weight: 800; color: var(--slate-900); }

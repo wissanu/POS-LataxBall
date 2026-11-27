@@ -14,6 +14,7 @@ const props = defineProps({
   error: String,
   format: Function, // optional: (value) => cleaned value, applied while typing
   size: { type: String, default: 'lg' }, // lg (forms) | sm
+  disabled: Boolean,
 })
 const emit = defineEmits(['update:modelValue'])
 
@@ -39,7 +40,7 @@ const id = useId()
       <AppIcon v-if="icon" :name="icon" :size="16" class="control__icon" />
       <input
         :id="id" :value="modelValue" :type="type" :placeholder="placeholder" :autocomplete="autocomplete"
-        :inputmode="inputmode" :maxlength="maxlength" :aria-invalid="!!error || undefined"
+        :inputmode="inputmode" :maxlength="maxlength" :disabled="disabled" :aria-invalid="!!error || undefined"
         @input="onInput"
       />
       <slot name="trailing" />

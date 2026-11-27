@@ -24,9 +24,9 @@ const canEdit = computed(() => auth.can('transport.create'))
 
 const today = bangkokDate()
 const date = ref(today)
-const props = defineProps({ defaultOpen: { type: Boolean, default: false } })
+const props = defineProps({ defaultOpen: { type: Boolean, default: false }, balanceOnly: { type: Boolean, default: false } }) // balanceOnly = แสดงเฉพาะสรุปยอดงบดุล (ภาพรวม) ไม่มีแท็บสรุปยอดวันนี้
 const open = ref(props.defaultOpen) // ย่ออยู่ก่อนเป็นค่าเริ่มต้น (เห็นแค่หัวแผง + กำไรสุทธิสั้น ๆ) · หน้า "บิล" เปิดไว้
-const tab = ref('day') // 'day' = สรุปยอดวันนี้ · 'range' = สรุปยอดงบดุล
+const tab = ref(props.balanceOnly ? 'range' : 'day') // 'day' = สรุปยอดวันนี้ · 'range' = สรุปยอดงบดุล
 const data = ref(null)
 const loading = ref(false)
 const error = ref('')
@@ -90,19 +90,19 @@ const isToday = computed(() => date.value === today)
     <header class="dp__head">
       <button type="button" class="dp__toggle" :aria-expanded="open" @click="open = !open">
         <AppIcon name="chart" :size="15" />
-        <b>สรุปกำไร</b>
-        <span class="dp__date">{{ formatThaiDate(date) }}<template v-if="isToday"> (วันนี้)</template></span>
+        <b>{{ balanceOnly ? 'สรุปยอดงบดุล (ภาพรวม)' : 'สรุปกำไร' }}</b>
+        <span v-if="!balanceOnly" class="dp__date">{{ formatThaiDate(date) }}<template v-if="isToday"> (วันนี้)</template></span>
       </button>
-      <span class="dp__quick" :class="{ loss: hasBill && calc.profit < 0, wait: !hasBill }">
+      <span v-if="!balanceOnly" class="dp__quick" :class="{ loss: hasBill && calc.profit < 0, wait: !hasBill }">
         <template v-if="!data">…</template>
         <template v-else-if="hasBill">กำไรสุทธิ <b>{{ formatMoney(calc.profit) }}</b></template>
         <template v-else>รอบิลโรงงาน</template>
       </span>
-      <label class="dp__pick"><span class="sr-only">เลือกวันที่</span><input v-model="date" type="date" :max="today" /></label>
+      <label v-if="!balanceOnly" class="dp__pick"><span class="sr-only">เลือกวันที่</span><input v-model="date" type="date" :max="today" /></label>
     </header>
 
     <div v-if="open" class="dp__body">
-      <div class="dp__tabs" role="tablist" aria-label="มุมมองสรุปกำไร">
+      <div v-if="!balanceOnly" class="dp__tabs" role="tablist" aria-label="มุมมองสรุปกำไร">
         <button type="button" role="tab" :aria-selected="tab === 'day'" :class="{ on: tab === 'day' }" @click="tab = 'day'">สรุปยอดวันนี้</button>
         <button type="button" role="tab" :aria-selected="tab === 'range'" :class="{ on: tab === 'range' }" @click="tab = 'range'">สรุปยอดงบดุล</button>
       </div>

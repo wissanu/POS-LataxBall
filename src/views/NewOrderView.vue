@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import AppIcon from '@/components/AppIcon.vue'
 import ProductCard from '@/components/ProductCard.vue'
 import OrderPanel from '@/components/OrderPanel.vue'
+import FactoryStrip from '@/components/FactoryStrip.vue'
 import BaseButton from '@/components/BaseButton.vue'
 import BaseModal from '@/components/BaseModal.vue'
 import PriceBoardModal from '@/components/PriceBoardModal.vue'
@@ -39,7 +40,7 @@ const settingsOpen = ref(false) // popup: ตั้งค่าน้ำหน�
 const selected = ref(null)
 
 onMounted(() => {
-  // เปิดมาจากหน้า Order List (ปุ่ม "ทำบิลย้อนหลัง") พร้อม ?date=YYYY-MM-DD → เริ่มที่วันนั้นเลย
+  // เปิดมาจากหน้ารายการออเดอร์ (ปุ่ม "ทำบิลย้อนหลัง") พร้อม ?date=YYYY-MM-DD → เริ่มที่วันนั้นเลย
   const q = typeof route.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(route.query.date) ? route.query.date : ''
   if (q) board.selectedDate = q < board.todayStr ? q : ''
   board.start() // โหลดราคาของวันที่เลือก (ค่าเริ่มต้น = วันนี้) + เฝ้าเที่ยงคืน (รีเซ็ตอัตโนมัติ)
@@ -183,10 +184,10 @@ function openDrafts() {
     <header class="title">
       <div class="title__main">
         <div class="title__row">
-          <h1>จัดทำรายการ</h1>
+          <h1>รับออเดอร์ใหม่</h1>
           <span class="live">Live</span>
         </div>
-        <p class="crumbs">Dashboard <i>•</i> <b>New Order</b></p>
+        <p class="crumbs">Dashboard <i>•</i> <b>รับออเดอร์ใหม่</b></p>
         <div class="quick">
           <label class="billdate" :class="{ 'billdate--past': board.isBackdated }" title="วันที่ลงบิล — เลือกวันที่ผ่านมาแล้วเพื่อทำบิลย้อนหลัง">
             <span>วันที่ลงบิล</span>
@@ -198,6 +199,8 @@ function openDrafts() {
           <BaseButton variant="outline" size="sm" @click="openDrafts"><AppIcon name="file" :size="14" /> Draft List</BaseButton>
           <BaseButton variant="outline" size="sm" @click="toast.info('ยังไม่เปิดใช้งานฟีเจอร์นี้')"><AppIcon name="table" :size="14" /> Table Order</BaseButton>
         </div>
+        <!-- ราคาโรงงานของวัน (กำหนดเอง) + แผงคาดการณ์กำไรก่อนกด Bill & Print -->
+        <FactoryStrip />
       </div>
       <!-- ปุ่มฟันเฟือง: ตั้งค่าน้ำหนักภาชนะ (ตัวเลขที่ใช้หักในส่วนที่ 4) -->
       <button type="button" class="gear" title="ตั้งค่าน้ำหนักภาชนะ" aria-label="ตั้งค่าน้ำหนักภาชนะ" @click="settingsOpen = true"><AppIcon name="gear" :size="20" /></button>
